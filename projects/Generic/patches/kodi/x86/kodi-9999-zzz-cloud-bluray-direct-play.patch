@@ -1,0 +1,1319 @@
+diff --git a/xbmc/FileItem.cpp b/xbmc/FileItem.cpp
+index fa8e8f3..32e5720 100644
+--- a/xbmc/FileItem.cpp
++++ b/xbmc/FileItem.cpp
+@@ -961,6 +961,13 @@ bool CFileItem::IsNFO() const
+ 
+ bool CFileItem::IsDiscImage() const
+ {
++  // A bluray:// virtual path or playlist represents an unpacked stream, not a raw disc image
++  if (URIUtils::IsBlurayPath(GetDynPath()) || IsType(".mpls") || IsType(".bdmv"))
++    return false;
++
++  if (HasProperty("httpurl.disc_image"))
++    return GetProperty("httpurl.disc_image").asBoolean(false);
++
+   return GetDynURL().IsDiscImage();
+ }
+ 
+@@ -2228,6 +2235,13 @@ bool CFileItem::LoadDetails()
+       const CFileItem loadedItem{*tag};
+       UpdateInfo(loadedItem);
+ 
++      if (tag->m_iDbId >= 0 && !tag->m_type.empty())
++      {
++        KODI::ART::Artwork artwork;
++        if (db.GetArtForItem(tag->m_iDbId, tag->m_type, artwork))
++          AppendArt(artwork);
++      }
++
+       // The record names the file a videodb:// path plays, and nothing later resolves it
+       if (!HasDynPath())
+         SetDynPath(loadedItem.GetPath());
+@@ -2265,6 +2279,13 @@ bool CFileItem::LoadDetails()
+     {
+       const CFileItem loadedItem{*tag};
+       UpdateInfo(loadedItem);
++
++      if (tag->m_iDbId >= 0 && !tag->m_type.empty())
++      {
++        KODI::ART::Artwork artwork;
++        if (db.GetArtForItem(tag->m_iDbId, tag->m_type, artwork))
++          AppendArt(artwork);
++      }
+       return true;
+     }
+ 
+@@ -2292,6 +2313,13 @@ bool CFileItem::LoadDetails()
+         {
+           UpdateInfo(*item);
+           *GetVideoInfoTag() = tag;
++
++          if (tag.m_iDbId >= 0 && !tag.m_type.empty())
++          {
++            KODI::ART::Artwork artwork;
++            if (db.GetArtForItem(tag.m_iDbId, tag.m_type, artwork))
++              AppendArt(artwork);
++          }
+           return true;
+         }
+       }
+diff --git a/xbmc/application/ApplicationPlay.cpp b/xbmc/application/ApplicationPlay.cpp
+index 58a10f2..8f0a3f6 100644
+--- a/xbmc/application/ApplicationPlay.cpp
++++ b/xbmc/application/ApplicationPlay.cpp
+@@ -15,6 +15,7 @@
+ #include "Util.h"
+ #include "cores/AudioEngine/Interfaces/AE.h"
+ #include "cores/playercorefactory/PlayerCoreFactory.h"
++#include "filesystem/CurlFile.h"
+ #include "dialogs/GUIDialogBusy.h"
+ #include "filesystem/DirectoryFactory.h"
+ #include "filesystem/DiscDirectoryHelper.h"
+@@ -29,6 +30,7 @@
+ #include "settings/SettingsComponent.h"
+ #include "threads/IRunnable.h"
+ #include "utils/DiscsUtils.h"
++#include "utils/FileExtensionProvider.h"
+ #include "utils/URIUtils.h"
+ #include "utils/log.h"
+ #include "video/Bookmark.h"
+@@ -180,6 +182,49 @@ void CApplicationPlay::GetOptionsAndUpdateItem()
+ 
+ namespace
+ {
++void DetectHttpDiscImageForPlayback(CFileItem& item)
++{
++  if (item.HasProperty("httpurl.disc_image") ||
++      !URIUtils::IsInternetStream(item.GetDynPath(), true /* strict http/https */))
++    return;
++
++  // Fast skip: already a disc image, or PVR / live streams / disabled lookup
++  if (item.IsDiscImage() || item.IsPVR() || item.IsLiveTV() || !item.ContentLookup())
++    return;
++
++  // Fast skip: clearly a normal video container by standard video extensions
++  if (URIUtils::HasExtension(item.GetDynPath(),
++                             CServiceBroker::GetFileExtensionProvider().GetVideoExtensions()))
++    return;
++
++  // Probe redirects using CCurlFile with a short connect timeout
++  try
++  {
++    XFILE::CCurlFile curlFile;
++    curlFile.SetTimeout(5);
++    CURL url(item.GetDynURL());
++    if (curlFile.Open(url))
++    {
++      const std::string effectiveUrl = curlFile.GetURL();
++      const std::string mime = curlFile.GetHttpHeader().GetMimeType();
++      const bool isDisc = URIUtils::IsDiscImage(effectiveUrl) ||
++                          mime == "application/x-iso9660-image" ||
++                          mime == "application/x-cd-image";
++      if (isDisc)
++      {
++        CLog::LogF(LOGINFO, "HTTP ISO pre-detection: identified disc image via redirect to {}",
++                   CURL::GetRedacted(effectiveUrl));
++        item.SetProperty("httpurl.disc_image", true);
++      }
++      curlFile.Close();
++    }
++  }
++  catch (...)
++  {
++    // Ignore network probe failures; playback will proceed through standard path
++  }
++}
++
+ MenuDecision GetMenuDecisions(const CFileItem& item,
+                               const std::string& player,
+                               const CPlayerOptions& options)
+@@ -221,9 +266,16 @@ MenuDecision GetMenuDecisions(const CFileItem& item,
+     return SHOW_DISC_MENU;
+ 
+   // Select main title
++  // Direct to player without application-layer MPLS enumeration:
++  // When "Play main title" is chosen, skip CDiscDirectoryHelper/CBlurayDirectory directory parsing.
++  // CDVDInputStreamBluray directly opens the disc and selects the main title via libbluray.
+   const bool useMainTitleSetting{playbackSetting == BD_PLAYBACK_MAIN_TITLE};
+   if ((isBluray || isBlurayPath) && atStart && useMainTitleSetting)
++  {
++    if (!forceSelectionAlways)
++      return NO_ACTION;
+     return GET_MAIN_TITLE;
++  }
+ 
+   const bool forceSelectionAtStart{playbackSetting == BD_PLAYBACK_SIMPLE_MENU};
+   const bool mainTitle{playbackSetting == BD_PLAYBACK_MAIN_TITLE};
+@@ -249,7 +301,7 @@ bool CApplicationPlay::GetPlaylistIfDisc()
+     case SHOW_DISC_MENU:
+     {
+       // Generate a bluray:// menu path
+-      m_item.SetDynPath(URIUtils::GetBlurayMenuPath(m_item.GetDynPath()));
++      m_item.SetDynPath(URIUtils::GetBlurayMenuPath(m_item.GetDynPath(), m_item.IsDiscImage()));
+       break;
+     }
+     case SHOW_SIMPLE_MENU:
+@@ -403,6 +455,9 @@ CApplicationPlay::GatherPlaybackDetailsResult CApplicationPlay::GatherPlaybackDe
+   m_item = item;
+   m_player = std::move(player);
+ 
++  // Pre-detect disc image for HTTP/HTTPS streams without extension or behind 302 redirects
++  DetectHttpDiscImageForPlayback(m_item);
++
+   // Deal with stacks
+   // This retrieves the individual stack part FileItem from the stack
+   //  and also generates the PlayerOptions for the stack part.
+diff --git a/xbmc/cores/VideoPlayer/DVDFileInfo.cpp b/xbmc/cores/VideoPlayer/DVDFileInfo.cpp
+index 5c79e62..60c490c 100644
+--- a/xbmc/cores/VideoPlayer/DVDFileInfo.cpp
++++ b/xbmc/cores/VideoPlayer/DVDFileInfo.cpp
+@@ -358,7 +358,11 @@ bool CDVDFileInfo::CanExtract(const CFileItem& fileItem)
+        !PVR::UTILS::ProvidesStreamForMetaDataExtraction(fileItem)) ||
+       // plugin path not fully resolved
+       URIUtils::IsPlugin(fileItem.GetDynPath()) || URIUtils::IsUPnP(fileItem.GetPath()) ||
+-      NETWORK::IsInternetStream(fileItem) || VIDEO::IsDiscStub(fileItem) ||
++      URIUtils::HasExtension(fileItem.GetPath(), ".strm") ||
++      URIUtils::HasExtension(fileItem.GetDynPath(), ".strm") ||
++      NETWORK::IsInternetStream(fileItem) ||
++      (URIUtils::IsInternetStream(fileItem.GetDynPath()) && !URIUtils::IsOnLAN(fileItem.GetDynPath())) ||
++      VIDEO::IsDiscStub(fileItem) ||
+       PLAYLIST::IsPlayList(fileItem))
+     return false;
+ 
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDFactoryInputStream.cpp b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDFactoryInputStream.cpp
+index 368ae4a..17375f4 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDFactoryInputStream.cpp
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDFactoryInputStream.cpp
+@@ -30,6 +30,7 @@
+ #include "filesystem/CurlFile.h"
+ #include "filesystem/IFileTypes.h"
+ #include "storage/MediaManager.h"
++#include "utils/DiscsUtils.h"
+ #include "utils/FileUtils.h"
+ #include "utils/URIUtils.h"
+ #include "video/VideoFileItemClassify.h"
+@@ -77,14 +78,7 @@ std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVide
+   if (fileitem.IsDiscImage())
+   {
+ #ifdef HAVE_LIBBLURAY
+-    CURL url("udf://");
+-    url.SetHostName(file);
+-    url.SetFileName("BDMV/index.bdmv");
+-    if (CFileUtils::Exists(url.Get()))
+-      return std::make_shared<CDVDInputStreamBluray>(pPlayer, fileitem);
+-    url.SetHostName(file);
+-    url.SetFileName("BDMV/INDEX.BDM");
+-    if (CFileUtils::Exists(url.Get()))
++    if (::UTILS::DISCS::IsBlurayDiscImage(fileitem))
+       return std::make_shared<CDVDInputStreamBluray>(pPlayer, fileitem);
+ #endif
+ 
+@@ -113,7 +107,7 @@ std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVide
+ #ifdef HAVE_LIBBLURAY
+   else if (fileitem.IsType(".bdmv") || fileitem.IsType(".mpls")
+           || fileitem.IsType(".bdm") || fileitem.IsType(".mpl")
+-          || StringUtils::StartsWithNoCase(file, "bluray:"))
++          || URIUtils::IsBlurayPath(file) || URIUtils::IsBlurayPath(fileitem.GetPath()))
+     return std::make_shared<CDVDInputStreamBluray>(pPlayer, fileitem);
+ #endif
+   else if (StringUtils::StartsWithNoCase(file, "rtp://") ||
+@@ -166,6 +160,16 @@ std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVide
+       }
+     }
+ 
++    // Re-check whether resolved URL or hint indicates a disc image
++    if (finalFileitem.IsDiscImage())
++    {
++#ifdef HAVE_LIBBLURAY
++      if (::UTILS::DISCS::IsBlurayDiscImage(finalFileitem))
++        return std::make_shared<CDVDInputStreamBluray>(pPlayer, finalFileitem);
++#endif
++      return std::make_shared<CDVDInputStreamNavigator>(pPlayer, finalFileitem);
++    }
++
+     if (finalFileitem.IsType(".m3u8"))
+       return std::make_shared<CDVDInputStreamFFmpeg>(finalFileitem);
+ 
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
+index 875f35f..ff82f61 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
+@@ -23,6 +23,7 @@
+ #include "filesystem/BlurayJava.h"
+ #include "filesystem/SpecialProtocol.h"
+ #include "filesystem/bluray/MPLSParser.h"
++#include "settings/DiscSettings.h"
+ #include "settings/Settings.h"
+ #include "settings/SettingsComponent.h"
+ #include "utils/Geometry.h"
+@@ -36,12 +37,16 @@
+ 
+ #include <algorithm>
+ #include <chrono>
++#include <condition_variable>
+ #include <cstring>
+ #include <limits>
+ #include <memory>
++#include <mutex>
+ #include <optional>
++#include <queue>
+ #include <ranges>
+ #include <string>
++#include <thread>
+ #include <vector>
+ 
+ #include <libbluray/bluray-version.h>
+@@ -74,6 +79,105 @@ void  bluray_overlay_argb_cb(void *this_gen, const struct bd_argb_overlay_s * co
+ }
+ #endif
+ 
++namespace
++{
++class BdCloseWorker
++{
++public:
++  static BdCloseWorker& Instance()
++  {
++    static BdCloseWorker instance;
++    return instance;
++  }
++
++  void Submit(BLURAY* bd)
++  {
++    if (!bd)
++      return;
++    {
++      std::lock_guard<std::mutex> lock(m_mutex);
++      m_queue.push(bd);
++    }
++    m_cv.notify_one();
++  }
++
++  void WaitForIdle()
++  {
++    std::unique_lock<std::mutex> lock(m_mutex);
++    if (m_queue.empty() && !m_busy)
++      return;
++    const auto t_start = std::chrono::steady_clock::now();
++    const bool ok = m_idleCv.wait_for(lock, std::chrono::seconds(15),
++                                      [this] { return m_queue.empty() && !m_busy; });
++    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                        std::chrono::steady_clock::now() - t_start).count();
++    if (ok)
++      CLog::Log(LOGDEBUG, "BdCloseWorker::WaitForIdle - waited {}ms for prior bd_close", ms);
++    else
++      CLog::Log(LOGWARNING,
++                "BdCloseWorker::WaitForIdle - 15s timeout, proceeding (worker may be stuck)");
++  }
++
++  ~BdCloseWorker()
++  {
++    {
++      std::lock_guard<std::mutex> lock(m_mutex);
++      m_stopping = true;
++    }
++    m_cv.notify_one();
++    if (m_thread.joinable())
++      m_thread.join();
++  }
++
++private:
++  BdCloseWorker() : m_thread(&BdCloseWorker::Run, this) {}
++
++  void Run()
++  {
++    while (true)
++    {
++      BLURAY* bd = nullptr;
++      {
++        std::unique_lock<std::mutex> lock(m_mutex);
++        m_cv.wait(lock, [this] { return m_stopping || !m_queue.empty(); });
++        if (m_queue.empty())
++          return;
++        bd = m_queue.front();
++        m_queue.pop();
++        m_busy = true;
++      }
++
++      const auto t_start = std::chrono::steady_clock::now();
++      try
++      {
++        bd_close(bd);
++      }
++      catch (...)
++      {
++        CLog::Log(LOGERROR, "BdCloseWorker::Run - bd_close threw");
++      }
++      const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                          std::chrono::steady_clock::now() - t_start).count();
++      CLog::Log(LOGDEBUG, "BdCloseWorker::Run - bd_close completed in {}ms", ms);
++
++      {
++        std::lock_guard<std::mutex> lock(m_mutex);
++        m_busy = false;
++      }
++      m_idleCv.notify_all();
++    }
++  }
++
++  std::mutex m_mutex;
++  std::condition_variable m_cv;
++  std::condition_variable m_idleCv;
++  std::queue<BLURAY*> m_queue;
++  bool m_busy{false};
++  bool m_stopping{false};
++  std::thread m_thread;
++};
++}
++
+ CDVDInputStreamBluray::CDVDInputStreamBluray(IVideoPlayer* player, const CFileItem& fileitem) :
+   CDVDInputStream(DVDSTREAM_TYPE_BLURAY, fileitem), m_player(player)
+ {
+@@ -113,9 +217,37 @@ BLURAY_TITLE_INFO* CDVDInputStreamBluray::GetTitleFromState(const std::string& x
+   return bd_get_playlist_info(m_bd, blurayState.playlistId, 0);
+ }
+ 
+-BLURAY_TITLE_INFO* CDVDInputStreamBluray::GetTitleLongest()
++BLURAY_TITLE_INFO* CDVDInputStreamBluray::GetMainTitle()
+ {
+   int titles = bd_get_titles(m_bd, TITLES_RELEVANT, 0);
++  if (titles <= 0)
++    return nullptr;
++
++  // Prefer libbluray's native heuristic algorithm:
++  // Evaluates chapter count, HD audio properties (TrueHD/Atmos/DTS-HD MA), video properties,
++  // and filters out ScreenPass fake playlist traps.
++  int mainTitleIdx = bd_get_main_title(m_bd);
++  if (mainTitleIdx >= 0 && mainTitleIdx < titles)
++  {
++    BLURAY_TITLE_INFO* info = bd_get_title_info(m_bd, mainTitleIdx, 0);
++    if (info)
++    {
++      CLog::Log(LOGDEBUG,
++                "CDVDInputStreamBluray::GetMainTitle - selected main title {} (idx {}) via bd_get_main_title",
++                info->playlist, mainTitleIdx);
++      return info;
++    }
++  }
++
++  CLog::Log(LOGDEBUG,
++            "CDVDInputStreamBluray::GetMainTitle - bd_get_main_title unavailable, falling back to GetTitleLongest");
++  return GetTitleLongest(titles);
++}
++
++BLURAY_TITLE_INFO* CDVDInputStreamBluray::GetTitleLongest(int titles)
++{
++  if (titles < 0)
++    titles = bd_get_titles(m_bd, TITLES_RELEVANT, 0);
+ 
+   BLURAY_TITLE_INFO *s = nullptr;
+   for(int i=0; i < titles; i++)
+@@ -151,6 +283,7 @@ BLURAY_TITLE_INFO* CDVDInputStreamBluray::GetTitleFile(const std::string& filena
+ 
+ bool CDVDInputStreamBluray::Open()
+ {
++  BdCloseWorker::Instance().WaitForIdle();
+   if(m_player == nullptr)
+     return false;
+ 
+@@ -158,7 +291,6 @@ bool CDVDInputStreamBluray::Open()
+   std::string filename;
+   std::string root;
+ 
+-  bool openStream = false;
+   bool openDisc = false;
+   bool resumable = true;
+ 
+@@ -172,50 +304,35 @@ bool CDVDInputStreamBluray::Open()
+     root = url.GetHostName();
+     filename = URIUtils::GetFileName(url.GetFileName());
+ 
+-    // Check whether disc is AACS protected
++    // Remove udf:// if present before probing disc properties
+     CURL url2(root);
+     CFileItem item(url2, false);
+-    openDisc = VIDEO::IsProtectedBlurayDisc(item);
++    if (!url2.IsProtocol("udf") && !URIUtils::IsRemote(root))
++    {
++      openDisc = VIDEO::IsProtectedBlurayDisc(item);
++    }
+ 
+     // check for a menu call for an image file
+-    if (StringUtils::EqualsNoCase(filename, "menu") &&
+-        !(m_item.GetStartOffset() == STARTOFFSET_RESUME && m_item.IsResumable()))
++    if (StringUtils::EqualsNoCase(filename, "menu"))
+     {
+       resumable = false;
+ 
+-      // Remove udf:// if present
+-      if (url2.IsProtocol("udf"))
+-      {
+-        item.SetPath(url2.GetHostName());
+-        openDisc = VIDEO::IsProtectedBlurayDisc(item);
+-      }
+-
+-      if (item.IsDiscImage())
+-      {
+-        if (!OpenStream(item))
+-          return false;
+-
+-        openStream = true;
+-      }
++      // A menu on a disc image is opened below in files mode like any other disc: root already
++      // names the image, and a menu on a BDMV folder has always been read that way.
+     }
+   }
+   else if (m_item.IsDiscImage())
+   {
+-    if (!OpenStream(m_item))
+-      return false;
+-
+-    openStream = true;
+-
+-    // libbluray reads the image through our block callback and so needs no path, but
+-    // Kodi's own MPLS parser does - it reads the playlist to find the 3D extension data
+-    // that libbluray parses but does not expose.
+-    // Hades: it is kept apart from the root that the disc is opened with, which stays what it
+-    // was for an image (empty).
+-    CURL udfUrl("udf://");
+-    udfUrl.SetHostName(m_item.GetDynPath());
+-    m_vfsRoot = udfUrl.Get();
++    // Read the image through Kodi's filesystem rather than streaming raw 2048-byte blocks.
++    // Stream mode reads through a file opened READ_NO_CACHE, so every block libbluray asks for
++    // becomes its own request to the source, and it shares nothing with the cache the directory
++    // above read the same image through. The dynamic path is the resolved one, so a .strm
++    // pointing at an image reaches the image itself rather than the .strm.
++    CURL url2("udf://");
++    url2.SetHostName(m_item.GetDynPath());
++    root = url2.Get();
+   }
+-  else if (VIDEO::IsProtectedBlurayDisc(m_item))
++  else if (!URIUtils::IsRemote(m_item.GetDynPath()) && VIDEO::IsProtectedBlurayDisc(m_item))
+   {
+     openDisc = true;
+   }
+@@ -274,16 +391,7 @@ bool CDVDInputStreamBluray::Open()
+ 
+   CLog::Log(LOGDEBUG, "CDVDInputStreamBluray::Open - opening {}", CURL::GetRedacted(root));
+ 
+-  if (openStream)
+-  {
+-    if (!bd_open_stream(m_bd, this, read_blocks))
+-    {
+-      CLog::Log(LOGERROR, "CDVDInputStreamBluray::Open - failed to open {} in stream mode",
+-                CURL::GetRedacted(root));
+-      return false;
+-    }
+-  }
+-  else if (openDisc)
++  if (openDisc)
+   {
+     // This special case is required for opening original AACS protected Blu-ray discs. Otherwise
+     // things like Bus Encryption might not be handled properly and playback will fail.
+@@ -417,6 +525,8 @@ bool CDVDInputStreamBluray::Open()
+     return false;
+   }
+ 
++  const int mode = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_DISC_PLAYBACK);
++
+   if (URIUtils::HasExtension(filename, ".mpls"))
+   {
+     m_navmode = false;
+@@ -427,6 +537,11 @@ bool CDVDInputStreamBluray::Open()
+     m_navmode = false;
+     m_titleInfo = GetTitleFromState(m_item.GetVideoInfoTag()->GetResumePoint().playerState);
+   }
++  else if (mode == BD_PLAYBACK_MAIN_TITLE)
++  {
++    m_navmode = false;
++    m_titleInfo = GetMainTitle();
++  }
+   else
+   {
+     m_navmode = true;
+@@ -445,7 +560,7 @@ bool CDVDInputStreamBluray::Open()
+     }
+ 
+     if(!m_navmode)
+-      m_titleInfo = GetTitleLongest();
++      m_titleInfo = GetMainTitle();
+   }
+ 
+   if (m_navmode)
+@@ -521,10 +636,9 @@ void CDVDInputStreamBluray::Close()
+   if(m_bd)
+   {
+     bd_register_overlay_proc(m_bd, nullptr, nullptr);
+-    bd_close(m_bd);
++    BdCloseWorker::Instance().Submit(m_bd);
++    m_bd = nullptr;
+   }
+-
+-  m_bd = nullptr;
+   m_pstream.reset();
+   m_rootPath.clear();
+   m_readPos = 0;
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
+index cae07e5..9fdadf4 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
+@@ -221,7 +221,8 @@ public:
+ #endif
+ 
+   BLURAY_TITLE_INFO* GetTitleFromState(const std::string& xmlstate);
+-  BLURAY_TITLE_INFO* GetTitleLongest();
++  BLURAY_TITLE_INFO* GetMainTitle();
++  BLURAY_TITLE_INFO* GetTitleLongest(int titles = -1);
+   BLURAY_TITLE_INFO* GetTitleFile(const std::string& name);
+ 
+   void ProcessEvent();
+diff --git a/xbmc/filesystem/BlurayDirectory.cpp b/xbmc/filesystem/BlurayDirectory.cpp
+index 97b5d98..b40aa08 100644
+--- a/xbmc/filesystem/BlurayDirectory.cpp
++++ b/xbmc/filesystem/BlurayDirectory.cpp
+@@ -173,7 +173,8 @@ bool GetPlaylistsFromDisc(const CURL& url,
+     return false;
+ 
+   // Get information on all playlists
+-  CRegExp pl{true, CRegExp::autoUtf8, R"((\d{5}.mpls))"};
++  CRegExp pl{true, CRegExp::autoUtf8, R"(^(\d{5})\.[mM][pP][lL][sS]$)"};
++  std::unordered_set<unsigned int> seenPlaylists;
+   for (const auto& title : allTitles)
+   {
+     const CURL url3{title->GetPath()};
+@@ -181,6 +182,11 @@ bool GetPlaylistsFromDisc(const CURL& url,
+     if (pl.RegFind(filename) != -1)
+     {
+       const unsigned int playlist{static_cast<unsigned int>(std::stoi(pl.GetMatch(1)))};
++      if (!seenPlaylists.insert(playlist).second)
++      {
++        CLog::LogF(LOGDEBUG, "Skipping duplicate playlist entry {} ({})", playlist, filename);
++        continue;
++      }
+ 
+       PlaylistInformation& t = playlists.emplace_back();
+       if (!GetPlaylistInfoFromDisc(url, realPath, playlist, StreamDetails::DEFER, t, clipCache))
+diff --git a/xbmc/filesystem/CurlFile.cpp b/xbmc/filesystem/CurlFile.cpp
+index be9e0c2..c68537b 100644
+--- a/xbmc/filesystem/CurlFile.cpp
++++ b/xbmc/filesystem/CurlFile.cpp
+@@ -508,6 +508,7 @@ void CCurlFile::Close()
+   delete m_oldState;
+   m_oldState = NULL;
+ 
++  m_origUrl.clear();
+   m_url.clear();
+   m_referer.clear();
+   m_cookie.clear();
+@@ -586,6 +587,8 @@ void CCurlFile::SetCommonOptions(CReadState* state, bool failOnError /* = true *
+   if (!m_verifyPeer)
+     g_curlInterface.easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 0);
+ 
++  // Ensure url has no literal spaces before passing to libcurl
++  StringUtils::Replace(m_url, " ", "%20");
+   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_URL, m_url.c_str());
+   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_TRANSFERTEXT, CURL_OFF);
+ 
+@@ -1009,6 +1012,9 @@ void CCurlFile::ParseAndCorrectUrl(CURL &url2)
+     m_url = url2.GetWithoutUserDetails();
+   else
+     m_url = url2.Get();
++
++  // Normalize literal spaces to %20 to prevent libcurl CURLE_URL_MALFORMAT(3)
++  StringUtils::Replace(m_url, " ", "%20");
+ }
+ 
+ bool CCurlFile::Post(const std::string& strURL, const std::string& strPostData, std::string& strHTML)
+@@ -1170,13 +1176,19 @@ bool CCurlFile::Open(const CURL& url)
+     hte = -1;
+   }
+
+-  if (m_httpresponse <= hte || (m_failOnError && m_httpresponse >= 400))
++  // Fatal HTTP error codes (401 Unauthorized, 403 Forbidden, 404 Not Found, 410 Gone)
++  // must never be treated as valid stream opens, even if failonerror=false was passed
++  // in the URL protocol options.
++  const bool isFatalHttpError = (m_httpresponse == 401 || m_httpresponse == 403 ||
++                                 m_httpresponse == 404 || m_httpresponse == 410);
++  if (m_httpresponse <= hte || (m_failOnError && m_httpresponse >= 400) || isFatalHttpError)
+   {
+     std::string error;
+-    if (m_httpresponse >= 400 && CServiceBroker::GetLogging().CanLogComponent(LOGCURL))
++    if (m_httpresponse >= 400)
+     {
+       error.resize(4096);
+-      ReadLine(error.data(), 4095);
++      ReadLine(error.data(), 4095);
++      error.resize(strlen(error.c_str()));
+     }
+
+     CLog::Log(LOGERROR, "CCurlFile::{} - <{}> Failed with code {}:\n{}", __FUNCTION__,
+@@ -1204,18 +1218,10 @@ bool CCurlFile::Open(const CURL& url)
+     throw new CRedirectException(new CShoutcastFile);
+   }
+ 
++  // Modern Kodi uses CFileCache ahead of CCurlFile. Legacy CReadState multisession
++  // creates concurrent Range connections that violate CDN token concurrency limits
++  // (e.g. 115 CDN c=2 limit) and cause HTTP 403 on seek. Keep multisession disabled.
+   m_multisession = false;
+-  if(url2.IsProtocol("http") || url2.IsProtocol("https"))
+-  {
+-    m_multisession = true;
+-    if(m_state->m_httpheader.GetValue("Server").find("Portable SDK for UPnP devices") != std::string::npos)
+-    {
+-      CLog::Log(LOGWARNING,
+-                "CCurlFile::{} - <{}> Disabling multi session due to broken libupnp server",
+-                __FUNCTION__, redactPath);
+-      m_multisession = false;
+-    }
+-  }
+ 
+   if(StringUtils::EqualsNoCase(m_state->m_httpheader.GetValue("Transfer-Encoding"), "chunked"))
+     m_state->m_fileSize = 0;
+@@ -1241,6 +1247,7 @@ bool CCurlFile::Open(const CURL& url)
+       std::string redactEfpath = CURL::GetRedacted(efurl);
+       CLog::Log(LOGDEBUG, "CCurlFile::{} - <{}> Effective URL is {}", __FUNCTION__, redactPath,
+                 redactEfpath);
++      m_origUrl = m_url;
+     }
+     m_url = efurl;
+   }
+@@ -1543,7 +1550,33 @@ int64_t CCurlFile::Seek(int64_t iFilePosition, int iWhence)
+   m_state->m_bRetry = m_allowRetry;
+ 
+   long response = m_state->Connect(m_bufferSize);
+-  if(response < 0 && (m_state->m_fileSize == 0 || m_state->m_fileSize != m_state->m_filePos))
++
++  // If seek on effective CDN URL failed with 4xx (e.g. 403 token expired / rejected)
++  // and we have the original redirection URL, re-query the original URL to obtain a fresh 302 token.
++  if (response >= 400 && response < 500 && response != 416 && response != 406 &&
++      !m_origUrl.empty() && m_origUrl != m_url)
++  {
++    CLog::Log(LOGWARNING,
++              "CCurlFile::{} - HTTP {} on CDN URL <{}>, re-resolving via original URL <{}>",
++              __FUNCTION__, response, CURL::GetRedacted(m_url), CURL::GetRedacted(m_origUrl));
++
++    m_state->Disconnect();
++    m_url = m_origUrl;
++    SetCommonOptions(m_state);
++    SetRequestHeaders(m_state);
++    m_state->m_filePos = nextPos;
++    m_state->m_sendRange = true;
++    m_state->m_bRetry = m_allowRetry;
++
++    response = m_state->Connect(m_bufferSize);
++
++    std::string newEfurl = GetInfoString(CURLINFO_EFFECTIVE_URL);
++    if (!newEfurl.empty())
++      m_url = newEfurl;
++  }
++
++  if ((response < 0 || response >= 400) &&
++      (m_state->m_fileSize == 0 || m_state->m_fileSize != m_state->m_filePos))
+   {
+     if(m_multisession)
+     {
+@@ -1583,6 +1616,17 @@ int64_t CCurlFile::GetPosition()
+ 
+ int CCurlFile::Stat(const CURL& url, struct __stat64* buffer)
+ {
++  // Disc image files: return unknown size. The download layer discovers the size from the
++  // response; probing here would cost an extra request and, on some CDNs, burn a
++  // single-use redirect token.
++  if ((url.IsProtocol("http") || url.IsProtocol("https") ||
++       url.IsProtocol("dav") || url.IsProtocol("davs")) &&
++      URIUtils::IsDiscImage(url.GetFileName()))
++  {
++    if (buffer) { *buffer = {}; buffer->st_size = -1; buffer->st_mode = _S_IFREG; }
++    return 0;
++  }
++
+   // if file is already running, get info from it
+   if( m_opened )
+   {
+diff --git a/xbmc/filesystem/CurlFile.h b/xbmc/filesystem/CurlFile.h
+index 2bc40ed..ac3b1dd 100644
+--- a/xbmc/filesystem/CurlFile.h
++++ b/xbmc/filesystem/CurlFile.h
+@@ -159,6 +159,7 @@ namespace XFILE
+       int64_t m_writeOffset = 0;
+ 
+       std::string m_url;
++      std::string m_origUrl;
+       std::string m_userAgent;
+       ProxyType m_proxytype = ProxyType::HTTP;
+       std::string m_proxyhost;
+diff --git a/xbmc/filesystem/DiscDirectoryHelper.cpp b/xbmc/filesystem/DiscDirectoryHelper.cpp
+index e75691c..f313e33 100644
+--- a/xbmc/filesystem/DiscDirectoryHelper.cpp
++++ b/xbmc/filesystem/DiscDirectoryHelper.cpp
+@@ -2698,13 +2698,17 @@ bool FilterMoviePlaylists(std::vector<PlaylistInformation>& playlists, GetTitle
+ {
+   if (job != GetTitle::ALL)
+   {
++    std::vector<PlaylistInformation> candidates = playlists;
+     // Remove all playlists less than MIN_MOVIE_DURATION
+-    RemovePlaylists(playlists, "shorter than minimum movie duration",
++    RemovePlaylists(candidates, "shorter than minimum movie duration",
+                     [](const PlaylistInformation& playlist)
+                     { return playlist.duration < MIN_MOVIE_DURATION; });
++    if (!candidates.empty())
++      playlists = std::move(candidates);
++    else
++      CLog::LogF(LOGDEBUG,
++                 "No playlists of at least minimum movie duration, retaining candidate playlists");
+   }
+-  if (playlists.empty())
+-    CLog::LogF(LOGDEBUG, "No playlists of at least minimum movie duration");
+ 
+   return !playlists.empty();
+ }
+@@ -3691,7 +3695,8 @@ bool CDiscDirectoryHelper::GetMoviePlaylists(const CURL& url,
+   // The disc may name a movie the heuristics rejected - a short film is below the minimum they
+   // will accept - so what it says is asked for even when they found nothing
+   if (!playlists.empty())
+-    PopulateMovieFileItems(url, items, mainPlaylist, allTitles, playlists, m_getStreamDetails,
++    PopulateMovieFileItems(url, items, mainPlaylist, allTitles, playlists,
++                           job == GetTitle::ALL ? StreamDetailsProvider{} : m_getStreamDetails,
+                            m_playlistNames);
+   ApplyPlaylistHintsToMovie(url, items, allTitles, mainPlaylist, job, clips, playlistMap);
+ 
+@@ -3914,22 +3919,27 @@ bool CDiscDirectoryHelper::GetOrShowPlaylistSelection(const CFileItem& item,
+         {
+           if (item.GetVideoContentType() == EPISODES || item.GetVideoContentType() == TVSHOWS)
+             return URIUtils::GetBlurayTitlesPath(item.GetDynPath(), URIUtils::GetAllTitles::LONG,
+-                                                 URIUtils::AllTitlesOptions::EPISODES);
++                                                 URIUtils::AllTitlesOptions::EPISODES,
++                                                 item.IsDiscImage());
+           else
+             return URIUtils::GetBlurayTitlesPath(item.GetDynPath(), URIUtils::GetAllTitles::LONG,
+-                                                 URIUtils::AllTitlesOptions::MOVIES);
++                                                 URIUtils::AllTitlesOptions::MOVIES,
++                                                 item.IsDiscImage());
+         }
+ 
+         if (item.GetVideoContentType() == EPISODES || item.GetVideoContentType() == TVSHOWS ||
+             forceSelection)
+           // Single main title
+-          return URIUtils::GetBlurayMainTitlePath(item.GetDynPath());
++          return URIUtils::GetBlurayMainTitlePath(item.GetDynPath(), URIUtils::GetAllTitles::LONG,
++                                                  item.IsDiscImage());
+         else if (returnMultipleItems)
+           // Versions
+-          return URIUtils::GetBlurayMainTitlePath(item.GetDynPath(), URIUtils::GetAllTitles::ALL);
++          return URIUtils::GetBlurayMainTitlePath(item.GetDynPath(), URIUtils::GetAllTitles::ALL,
++                                                  item.IsDiscImage());
+         else
+           // Single main title
+-          return URIUtils::GetBlurayMainTitlePath(item.GetDynPath());
++          return URIUtils::GetBlurayMainTitlePath(item.GetDynPath(), URIUtils::GetAllTitles::LONG,
++                                                  item.IsDiscImage());
+       }()};
+   if (directory.empty())
+   {
+@@ -3975,9 +3985,11 @@ bool CDiscDirectoryHelper::GetOrShowPlaylistSelection(const CFileItem& item,
+         item.GetVideoContentType() == VideoDbContentType::EPISODES ||
+                 item.GetVideoContentType() == VideoDbContentType::TVSHOWS
+             ? URIUtils::GetBlurayTitlesPath(item.GetDynPath(), URIUtils::GetAllTitles::ALL,
+-                                            URIUtils::AllTitlesOptions::EPISODES)
++                                            URIUtils::AllTitlesOptions::EPISODES,
++                                            item.IsDiscImage())
+             : URIUtils::GetBlurayTitlesPath(item.GetDynPath(), URIUtils::GetAllTitles::ALL,
+-                                            URIUtils::AllTitlesOptions::MOVIES)};
++                                            URIUtils::AllTitlesOptions::MOVIES,
++                                            item.IsDiscImage())};
+     if (!GetItems(sourceItems, fallbackDirectory, silent))
+     {
+       CGUIDialogOK::ShowAndGetInput(
+diff --git a/xbmc/filesystem/UDFBlockInput.cpp b/xbmc/filesystem/UDFBlockInput.cpp
+index a25510b..c62a1f5 100644
+--- a/xbmc/filesystem/UDFBlockInput.cpp
++++ b/xbmc/filesystem/UDFBlockInput.cpp
+@@ -8,16 +8,41 @@
+ 
+ #include "UDFBlockInput.h"
+ 
++#include "IFileTypes.h"
+ #include "filesystem/File.h"
+ 
++#include <algorithm>
++#include <cstring>
+ #include <mutex>
+ 
+ #include <udfread/udfread.h>
+ 
++namespace
++{
++//! What one read from the image brings back: a request covers this many of UDF's 2048-byte blocks
++constexpr size_t PAGE_SIZE{256 * 1024};
++constexpr size_t PAGE_BLOCKS{PAGE_SIZE / UDF_BLOCK_SIZE};
++static_assert(PAGE_BLOCKS > 0);
++
++/*!
++ \brief How many pages to keep.
++
++ UDF keeps a file's entry in a metadata partition and its content in the data partition, so
++ reading a file is a run of reads from one followed by a run from the other, over and over.
++ A cache with a single window evicts one of them every time the other is read, which makes every
++ read its own request to the source - on a disc image over a network, that is the whole cost of
++ opening the disc. Holding several pages lets both runs stay resident, so a page is read once
++ however often the two alternate.
++ */
++constexpr size_t MAX_PAGES{64}; // 16MB
++} // namespace
++
+ int CUDFBlockInput::Close(udfread_block_input* bi)
+ {
+   auto m_bi = reinterpret_cast<UDF_BI*>(bi);
+ 
++  m_bi->pages.clear();
++  m_bi->recent.clear();
+   m_bi->fp->Close();
+ 
+   return 0;
+@@ -30,23 +55,86 @@ uint32_t CUDFBlockInput::Size(udfread_block_input* bi)
+   return static_cast<uint32_t>(m_bi->fp->GetLength() / UDF_BLOCK_SIZE);
+ }
+ 
++CUDFBlockInputPage* CUDFBlockInput::GetPage(UDF_BI& bi, uint64_t page)
++{
++  if (const auto it = bi.pages.find(page); it != bi.pages.end())
++  {
++    bi.recent.erase(it->second.recent);
++    bi.recent.push_front(page);
++    it->second.recent = bi.recent.begin();
++    return &it->second;
++  }
++
++  // Drop the least recently used pages, which are the ones least likely to be asked for again
++  while (bi.pages.size() >= MAX_PAGES)
++  {
++    bi.pages.erase(bi.recent.back());
++    bi.recent.pop_back();
++  }
++
++  const int64_t offset = static_cast<int64_t>(page) * PAGE_SIZE;
++  if (bi.fp->Seek(offset, SEEK_SET) != offset)
++    return nullptr;
++
++  CUDFBlockInputPage entry;
++  entry.data.resize(PAGE_SIZE);
++
++  const ssize_t read = bi.fp->Read(entry.data.data(), PAGE_SIZE);
++  if (read <= 0)
++    return nullptr;
++
++  entry.valid = static_cast<size_t>(read);
++
++  bi.recent.push_front(page);
++  entry.recent = bi.recent.begin();
++
++  return &bi.pages.emplace(page, std::move(entry)).first->second;
++}
++
+ int CUDFBlockInput::Read(
+     udfread_block_input* bi, uint32_t lba, void* buf, uint32_t blocks, int flags)
+ {
+   auto m_bi = reinterpret_cast<UDF_BI*>(bi);
+-  std::unique_lock lock(m_bi->lock);
+-
+-  int64_t pos = static_cast<int64_t>(lba) * UDF_BLOCK_SIZE;
+ 
+-  if (m_bi->fp->Seek(pos, SEEK_SET) != pos)
++  if (!m_bi || !m_bi->fp || blocks == 0)
+     return -1;
+ 
+-  ssize_t size = blocks * UDF_BLOCK_SIZE;
+-  ssize_t read = m_bi->fp->Read(buf, size);
+-  if (read > 0)
+-    return static_cast<int>(read / UDF_BLOCK_SIZE);
++  std::lock_guard lock(m_bi->lock);
++
++  auto* out = static_cast<uint8_t*>(buf);
++  uint64_t block{lba};
++  uint32_t left{blocks};
++
++  while (left > 0)
++  {
++    const uint64_t page{block / PAGE_BLOCKS};
++    const auto inPage{static_cast<uint32_t>(block % PAGE_BLOCKS)};
++    const uint32_t take{std::min(left, static_cast<uint32_t>(PAGE_BLOCKS - inPage))};
++
++    const CUDFBlockInputPage* entry{GetPage(*m_bi, page)};
++    if (!entry)
++      return -1;
++
++    const size_t from{static_cast<size_t>(inPage) * UDF_BLOCK_SIZE};
++    const size_t want{static_cast<size_t>(take) * UDF_BLOCK_SIZE};
++
++    // Only the image ending part way through a page can leave less here than was asked for
++    if (from >= entry->valid)
++      break;
++
++    const size_t have{std::min(want, entry->valid - from)};
++    std::memcpy(out, entry->data.data() + from, have);
++
++    out += have;
++    block += take;
++    left -= take;
++
++    if (have < want)
++      break;
++  }
+ 
+-  return static_cast<int>(read);
++  const auto read{static_cast<size_t>(block - lba) * UDF_BLOCK_SIZE};
++  return static_cast<int>(read / UDF_BLOCK_SIZE);
+ }
+ 
+ udfread_block_input* CUDFBlockInput::GetBlockInput(const std::string& file)
+diff --git a/xbmc/filesystem/UDFBlockInput.h b/xbmc/filesystem/UDFBlockInput.h
+index e7cfc88..c0f75f5 100644
+--- a/xbmc/filesystem/UDFBlockInput.h
++++ b/xbmc/filesystem/UDFBlockInput.h
+@@ -10,7 +10,12 @@
+ 
+ #include "threads/CriticalSection.h"
+ 
++#include <cstddef>
++#include <cstdint>
++#include <list>
++#include <map>
+ #include <memory>
++#include <vector>
+ 
+ #include <udfread/blockinput.h>
+ 
+@@ -19,6 +24,20 @@ namespace XFILE
+ class CFile;
+ }
+ 
++/*!
++ \brief A part of the image, held so that UDF's reads do not each cost a request to the source.
++ */
++struct CUDFBlockInputPage
++{
++  std::vector<uint8_t> data;
++
++  //! Bytes the image holds here, short for the last page of an image that does not end on one
++  size_t valid{0};
++
++  //! Position in the least-recently-used list
++  std::list<uint64_t>::iterator recent;
++};
++
+ class CUDFBlockInput
+ {
+ public:
+@@ -28,15 +47,28 @@ public:
+   udfread_block_input* GetBlockInput(const std::string& file);
+ 
+ private:
++  struct UDF_BI;
++
+   static int Close(udfread_block_input* bi);
+   static uint32_t Size(udfread_block_input* bi);
+   static int Read(udfread_block_input* bi, uint32_t lba, void* buf, uint32_t nblocks, int flags);
+ 
++  /*!
++   \brief Get the page holding a block, reading it from the image if it is not held already.
++   \return the page, or nullptr if the image could not be read
++   */
++  static CUDFBlockInputPage* GetPage(UDF_BI& bi, uint64_t page);
++
+   struct UDF_BI
+   {
+     struct udfread_block_input bi;
+     std::shared_ptr<XFILE::CFile> fp{nullptr};
+     CCriticalSection lock;
++
++    //! Pages held, most recently used first
++    std::list<uint64_t> recent;
++
++    std::map<uint64_t, CUDFBlockInputPage> pages;
+   };
+ 
+   std::unique_ptr<UDF_BI> m_bi{nullptr};
+diff --git a/xbmc/filesystem/UDFContext.cpp b/xbmc/filesystem/UDFContext.cpp
+index ab9707f..d1e5fb3 100644
+--- a/xbmc/filesystem/UDFContext.cpp
++++ b/xbmc/filesystem/UDFContext.cpp
+@@ -12,12 +12,16 @@
+ #include "threads/CriticalSection.h"
+ #include "utils/log.h"
+ 
++#include <chrono>
+ #include <map>
+ #include <mutex>
++#include <optional>
++#include <string>
+ 
+ #include <udfread/udfread.h>
+ 
+ using namespace XFILE;
++using namespace std::chrono_literals;
+ 
+ namespace
+ {
+@@ -25,6 +29,25 @@ CCriticalSection g_mountLock;
+ 
+ //! Volumes currently mounted, so that concurrent readers of one image share a single mount
+ std::map<std::string, std::weak_ptr<CUDFContext>, std::less<>> g_mounts;
++
++/*!
++ \brief Hold on to the most recently opened volume for a short grace period after its last reader lets go.
++ Examining a disc opens, reads and closes the volume several times in quick succession (disc image check,
++ playlist directory enumeration, player open), and each of those would otherwise cold-remount the UDF image
++ and re-request descriptors over the network.
++ Keeping at most one unreferenced volume ensures zero extra re-mounts for sequential opens of the same disc,
++ while strictly bounding memory and network connections (any different disc immediately evicts this slot).
++ */
++constexpr auto MOUNT_GRACE{20s};
++
++struct IdleMountSlot
++{
++  std::string image;
++  std::shared_ptr<CUDFContext> context;
++  std::chrono::steady_clock::time_point releasedAt;
++};
++
++std::optional<IdleMountSlot> g_lastIdleMount;
+ } // namespace
+ 
+ CUDFContext::~CUDFContext()
+@@ -62,10 +85,35 @@ std::shared_ptr<CUDFContext> CUDFContext::Get(const std::string& image)
+ {
+   std::unique_lock lock(g_mountLock);
+ 
++  const auto now{std::chrono::steady_clock::now()};
++
++  if (g_lastIdleMount.has_value())
++  {
++    if (g_lastIdleMount->image == image && (now - g_lastIdleMount->releasedAt < MOUNT_GRACE))
++    {
++      CLog::LogF(LOGDEBUG, "Reusing idle UDF volume of {}", CURL::GetRedacted(image));
++      std::shared_ptr<CUDFContext> context = g_lastIdleMount->context;
++      g_mounts[image] = context;
++      g_lastIdleMount->releasedAt = now;
++      return context;
++    }
++
++    if (g_lastIdleMount->image != image || (now - g_lastIdleMount->releasedAt >= MOUNT_GRACE))
++    {
++      if (g_lastIdleMount->image != image)
++        CLog::LogF(LOGDEBUG, "Evicting idle UDF volume of {} for new image {}",
++                   CURL::GetRedacted(g_lastIdleMount->image), CURL::GetRedacted(image));
++      g_lastIdleMount.reset();
++    }
++  }
++
+   if (const auto it{g_mounts.find(image)}; it != g_mounts.end())
+   {
+     if (std::shared_ptr<CUDFContext> context{it->second.lock()}; context)
++    {
++      g_lastIdleMount = IdleMountSlot{image, context, now};
+       return context;
++    }
+ 
+     g_mounts.erase(it);
+   }
+@@ -83,6 +131,7 @@ std::shared_ptr<CUDFContext> CUDFContext::Get(const std::string& image)
+   std::erase_if(g_mounts, [](const auto& mount) { return mount.second.expired(); });
+ 
+   g_mounts[image] = context;
++  g_lastIdleMount = IdleMountSlot{image, context, now};
+ 
+   return context;
+ }
+diff --git a/xbmc/guilib/guiinfo/VideoGUIInfo.cpp b/xbmc/guilib/guiinfo/VideoGUIInfo.cpp
+index b36bbe1..a8a9283 100644
+--- a/xbmc/guilib/guiinfo/VideoGUIInfo.cpp
++++ b/xbmc/guilib/guiinfo/VideoGUIInfo.cpp
+@@ -75,8 +75,25 @@ bool CVideoGUIInfo::InitCurrentItem(CFileItem* item)
+ 
+     CLog::Log(LOGDEBUG, "CVideoGUIInfo::InitCurrentItem({})", CURL::GetRedacted(item->GetPath()));
+ 
+-    // Find a thumb for this file.
+-    if (!item->HasArt("thumb"))
++    // For disc images, Blu-ray streams, .strm items and internet streams, skip thumb and streamdetails
++    // extraction on the GUI thread to avoid concurrent VFS opens against single-connection
++    // media sources (e.g. CDN-signed HTTP sources where concurrent Range workers trigger 403).
++    const bool isDisc = item->IsDiscImage() || URIUtils::IsDiscImage(item->GetDynPath()) ||
++                        URIUtils::IsBlurayPath(item->GetDynPath()) || URIUtils::IsBlurayPath(item->GetPath());
++    const bool isStrmOrStream = URIUtils::HasExtension(item->GetPath(), ".strm") ||
++                                URIUtils::HasExtension(item->GetDynPath(), ".strm") ||
++                                NETWORK::IsInternetStream(*item) ||
++                                URIUtils::IsInternetStream(item->GetDynPath());
++
++    if (isDisc || isStrmOrStream)
++    {
++      if (item->HasVideoInfoTag() && item->GetVideoInfoTag()->m_iDbId > -1 && !item->HasArt("poster"))
++      {
++        CVideoThumbLoader loader;
++        loader.FillLibraryArt(*item);
++      }
++    }
++    else if (!item->HasArt("thumb") || !item->HasArt("poster"))
+     {
+       CVideoThumbLoader loader;
+       loader.LoadItem(item);
+diff --git a/xbmc/utils/DiscsUtils.cpp b/xbmc/utils/DiscsUtils.cpp
+index 5f0a4fc..19bc748 100644
+--- a/xbmc/utils/DiscsUtils.cpp
++++ b/xbmc/utils/DiscsUtils.cpp
+@@ -43,12 +43,19 @@ UTILS::DISCS::DiscInfo UTILS::DISCS::ProbeDVDDiscInfo(const std::string& mediaPa
+ 
+ bool UTILS::DISCS::IsBlurayDiscImage(const CFileItem& item)
+ {
+-  return IsBlurayDiscImage(item.GetDynPath());
++  std::string path = item.GetDynPath();
++  const bool isKnownDisc = item.HasProperty("httpurl.disc_image")
++                               ? item.GetProperty("httpurl.disc_image").asBoolean(false)
++                               : item.IsDiscImage();
++  if (URIUtils::IsBlurayPath(path) && item.HasProperty("original_listitem_url"))
++    path = item.GetProperty("original_listitem_url").asString();
++
++  return IsBlurayDiscImage(path, isKnownDisc || URIUtils::IsDiscImage(path));
+ }
+ 
+-bool UTILS::DISCS::IsBlurayDiscImage(const std::string& path)
++bool UTILS::DISCS::IsBlurayDiscImage(const std::string& path, bool isKnownDiscImage)
+ {
+-  if (!URIUtils::IsDiscImage(path))
++  if (!isKnownDiscImage && !URIUtils::IsDiscImage(path))
+     return false;
+ 
+   static constexpr std::array<std::string_view, 4> blurayFiles = {
+diff --git a/xbmc/utils/DiscsUtils.h b/xbmc/utils/DiscsUtils.h
+index 3d19fbf..03b75b8 100644
+--- a/xbmc/utils/DiscsUtils.h
++++ b/xbmc/utils/DiscsUtils.h
+@@ -66,9 +66,10 @@ bool IsBlurayDiscImage(const CFileItem& item);
+ 
+ /*! \brief Probe a FileItem to see it is a bluray disc image
+     \param path The path to probe
++    \param isKnownDiscImage If true, bypass extension verification
+     \return true if the item is a bluray disc image, false otherwise
+ */
+-bool IsBlurayDiscImage(const std::string& path);
++bool IsBlurayDiscImage(const std::string& path, bool isKnownDiscImage = false);
+ 
+ } // namespace DISCS
+ } // namespace UTILS
+diff --git a/xbmc/utils/URIUtils.cpp b/xbmc/utils/URIUtils.cpp
+index 4d62c78..04938d8 100644
+--- a/xbmc/utils/URIUtils.cpp
++++ b/xbmc/utils/URIUtils.cpp
+@@ -697,22 +697,23 @@ std::string URIUtils::GetDiscUnderlyingFile(const CURL& url)
+   return AddFileToFolder(host, filename);
+ }
+ 
+-std::string URIUtils::GetBlurayMenuPath(const std::string& path)
++std::string URIUtils::GetBlurayMenuPath(const std::string& path, bool isDiscImage)
+ {
+   if (IsContainerPath(path))
+     return {};
+ 
+-  return AddFileToFolder(GetBlurayPath(path), "menu");
++  return AddFileToFolder(GetBlurayPath(path, isDiscImage), "menu");
+ }
+ 
+ std::string URIUtils::GetBlurayTitlesPath(const std::string& path,
+                                           GetAllTitles getAllTitles,
+-                                          AllTitlesOptions options)
++                                          AllTitlesOptions options,
++                                          bool isDiscImage)
+ {
+   if (IsContainerPath(path))
+     return {};
+ 
+-  std::string newPath{AddFileToFolder(GetBlurayPath(path), "root", "titles")};
++  std::string newPath{AddFileToFolder(GetBlurayPath(path, isDiscImage), "root", "titles")};
+   if (options == AllTitlesOptions::EPISODES)
+     newPath = AddFileToFolder(newPath, "episodes");
+   if (getAllTitles == GetAllTitles::ALL)
+@@ -720,12 +721,14 @@ std::string URIUtils::GetBlurayTitlesPath(const std::string& path,
+   return newPath;
+ }
+ 
+-std::string URIUtils::GetBlurayMainTitlePath(const std::string& path, GetAllTitles getAllTitles)
++std::string URIUtils::GetBlurayMainTitlePath(const std::string& path,
++                                             GetAllTitles getAllTitles,
++                                             bool isDiscImage)
+ {
+   if (IsContainerPath(path))
+     return {};
+ 
+-  std::string newPath{AddFileToFolder(GetBlurayPath(path), "root", "main")};
++  std::string newPath{AddFileToFolder(GetBlurayPath(path, isDiscImage), "root", "main")};
+   if (getAllTitles == GetAllTitles::ALL)
+     newPath = AddFileToFolder(newPath, "all");
+   return newPath;
+@@ -757,7 +760,7 @@ std::string URIUtils::GetBlurayPlaylistPath(const std::string& path, int playlis
+                          playlist != -1 ? StringUtils::Format("{:05}.mpls", playlist) : "");
+ }
+ 
+-std::string URIUtils::GetBlurayPath(const std::string& path)
++std::string URIUtils::GetBlurayPath(const std::string& path, bool isDiscImage)
+ {
+   if (IsContainerPath(path))
+     return {};
+@@ -771,7 +774,7 @@ std::string URIUtils::GetBlurayPath(const std::string& path)
+   }
+ 
+   std::string newPath{};
+-  if (IsDiscImage(path))
++  if (isDiscImage || IsDiscImage(path))
+   {
+     CURL url("udf://");
+     url.SetHostName(path);
+diff --git a/xbmc/utils/URIUtils.h b/xbmc/utils/URIUtils.h
+index 6827ba0..9f7f223 100644
+--- a/xbmc/utils/URIUtils.h
++++ b/xbmc/utils/URIUtils.h
+@@ -134,7 +134,7 @@ public:
+    \param path the ISO/index.BDMV path.
+    \return the bluray:// menu path.
+    */
+-  static std::string GetBlurayMenuPath(const std::string& path);
++  static std::string GetBlurayMenuPath(const std::string& path, bool isDiscImage = false);
+ 
+   enum class GetAllTitles : bool
+   {
+@@ -156,7 +156,12 @@ public:
+    */
+   static std::string GetBlurayTitlesPath(const std::string& path,
+                                          GetAllTitles getAllTitles = GetAllTitles::LONG,
+-                                         AllTitlesOptions options = AllTitlesOptions::MOVIES);
++                                         AllTitlesOptions options = AllTitlesOptions::MOVIES,
++                                         bool isDiscImage = false);
++  static std::string GetBlurayTitlesPath(const std::string& path, bool isDiscImage)
++  {
++    return GetBlurayTitlesPath(path, GetAllTitles::LONG, AllTitlesOptions::MOVIES, isDiscImage);
++  }
+ 
+   /*! \brief Given a path to an .ISO or index.BDMV, returns a bluray:// path to main title.
+    \param path the ISO/index.BDMV path.
+@@ -164,7 +169,12 @@ public:
+    \return the bluray:// root/main path.
+    */
+   static std::string GetBlurayMainTitlePath(const std::string& path,
+-                                            GetAllTitles getAllTitles = GetAllTitles::LONG);
++                                            GetAllTitles getAllTitles = GetAllTitles::LONG,
++                                            bool isDiscImage = false);
++  static std::string GetBlurayMainTitlePath(const std::string& path, bool isDiscImage)
++  {
++    return GetBlurayMainTitlePath(path, GetAllTitles::LONG, isDiscImage);
++  }
+ 
+   /*! \brief Given a path to an .ISO or index.BDMV, returns a bluray:// path to a given episode.
+    \param path the ISO/index.BDMV path.
+@@ -426,7 +436,7 @@ private:
+    \param path the ISO/index.BDMV path.
+    \return the bluray:// path.
+    */
+-  static std::string GetBlurayPath(const std::string& path);
++  static std::string GetBlurayPath(const std::string& path, bool isDiscImage = false);
+ 
+   static const CAdvancedSettings* m_advancedSettings;
+ };
