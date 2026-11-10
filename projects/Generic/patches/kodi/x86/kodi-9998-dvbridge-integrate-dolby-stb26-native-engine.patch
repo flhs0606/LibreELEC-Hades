@@ -1,6 +1,6 @@
-From 9bfc3ef2c99d93677a950bfdfc0eced94f8c1ce9 Mon Sep 17 00:00:00 2001
+From 85eb1580baf0617875f38cf0722cd566b670fb03 Mon Sep 17 00:00:00 2001
 From: Hades <hades@libreelec.tv>
-Date: Tue, 10 Nov 2026 17:24:51 +0800
+Date: Tue, 10 Nov 2026 18:34:29 +0800
 Subject: [PATCH] dvbridge: integrate Dolby Vision STB 2.6 native engine
 
 Integrate the official Dolby Vision STB 2.6 industrial-grade core
@@ -191,11 +191,13 @@ The STB 2.6 engine provides complete algorithmic capabilities:
  tools/dvbridge/dvbridge_core.c                |   15 +
  tools/dvbridge/dvbridge_core.h                |    4 +
  tools/dvbridge/dvbridge_metadata.h            |   19 +
- .../VideoRenderers/DVBridgeGLES.cpp           |   15 +
+ .../VideoRenderers/DVBridgeGLES.cpp           |   20 +
+ .../VideoPlayer/VideoRenderers/DVBridgeGLES.h |    2 +
  xbmc/settings/AdvancedSettings.cpp            |    2 +
  xbmc/settings/AdvancedSettings.h              |    1 +
  xbmc/settings/Settings.h                      |    1 +
- 174 files changed, 25768 insertions(+), 1 deletion(-)
+ .../windowing/gbm/WinSystemGbmGLESContext.cpp |   12 +
+ 176 files changed, 25787 insertions(+), 1 deletion(-)
  create mode 100644 tools/dvbridge/dv_stb26/CMakeLists.txt
  create mode 100644 tools/dvbridge/dv_stb26/align_to_byte.h
  create mode 100644 tools/dvbridge/dv_stb26/bitstream.c
@@ -27176,7 +27178,7 @@ index 2c6e96e..d1cf5a7 100644
                "a payload over 512 bytes, or of more than 32 blocks");
      /* 6.3.1: a metadata id is incremented each time the metadata change */
 diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
-index 855983e..662af63 100644
+index 855983e..60e067f 100644
 --- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
 @@ -25,6 +25,7 @@
@@ -27187,7 +27189,7 @@ index 855983e..662af63 100644
  #include "utils/StringUtils.h"
  #include "utils/SystemInfo.h"
  #include "utils/log.h"
-@@ -510,6 +511,20 @@ bool CDVBridgeGLES::Initialize(bool allowSoftware)
+@@ -510,6 +511,17 @@ bool CDVBridgeGLES::Initialize(bool allowSoftware)
    }
    // To measure on hardware what it saves, advancedsettings.xml can turn off the writing of the
    // bars before the reconstruction: <video><dvearlymask>false</dvearlymask></video>
@@ -27195,19 +27197,58 @@ index 855983e..662af63 100644
 +    const auto component = CServiceBroker::GetSettingsComponent();
 +    const auto settings = component ? component->GetSettings() : nullptr;
 +    const auto adv = component ? component->GetAdvancedSettings() : nullptr;
-+    bool stb26Engine = true;
++    bool stb26 = true;
 +    if (adv && !adv->m_videoDVSTB26Engine)
-+      stb26Engine = false;
++      stb26 = false;
 +    else if (settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVSTB26))
-+      stb26Engine = settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVSTB26);
-+
-+    dvbridge_set_stb26_engine_enabled(stb26Engine);
-+    CLog::Log(LOGINFO, "DVBridge: Dolby Vision STB 2.6 native engine [{}]",
-+              stb26Engine ? "ENABLED" : "DISABLED");
++      stb26 = settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVSTB26);
++    UseSTB26Engine(stb26);
 +  }
    if (const auto settings = CServiceBroker::GetSettingsComponent();
        settings && !settings->GetAdvancedSettings()->m_videoDVEarlyMask)
    {
+@@ -828,6 +840,8 @@ bool CDVBridgeGLES::Prepare(const Layer& base, const Layer* enhancement,
+     }
+     if (!m_reportedFrame)
+     {
++      CLog::Log(LOGINFO, "DVBridge: Dolby Vision STB 2.6 native engine [{}]",
++                m_stb26Engine ? "ENABLED" : "DISABLED");
+       // Hades: in the log without debugging, to tell a stream whose picture comes out wrong
+       // from one that plays right
+       CLog::Log(LOGINFO,
+@@ -1688,6 +1702,12 @@ void CDVBridgeGLES::UseMmrTableSetting()
+ // Hades: and as the setting of the content mapping v4.0 asks (videoscreen.hadesdvcm40,
+ // UseContentMapping()): as in the video (the default), that default part added, the same decided
+ // once a stream where the master is brighter than the display, or the v2.9 part only.
++void CDVBridgeGLES::UseSTB26Engine(bool enabled)
++{
++  m_stb26Engine = enabled;
++  dvbridge_set_stb26_engine_enabled(enabled);
++}
++
+ void CDVBridgeGLES::UseContentMapping(int mode, unsigned int displayPeakPq)
+ {
+   m_cm40Mode = mode >= DVBRIDGE_CM40_AS_GIVEN && mode <= DVBRIDGE_CM40_AUTO_NO_TRIMS ? mode : 0;
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+index 703e170..292c0df 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+@@ -325,6 +325,7 @@ public:
+   //! on; with <video><dvcm40default>true</dvcm40default></video> in advancedsettings.xml, as before,
+   //! the default v4.0 part is added whatever the setting says
+   void UseContentMapping(int mode, unsigned int displayPeakPq);
++  void UseSTB26Engine(bool enabled);
+   //! Hades: a new video (DVBRIDGE::NewVideo(), any thread): the automatic choice of the content
+   //! mapping v4.0 is made again for it, once (its decision lasts the video otherwise, also through
+   //! the ends and starts of native output and a renderer made again)
+@@ -600,6 +601,7 @@ private:
+   std::size_t m_refusalsCount = 0;
+   unsigned int m_displayManagement = 0; //!< see UseDisplayManagement()
+   int m_cm40Mode = 0; //!< see UseContentMapping(): as asked
++  bool m_stb26Engine = true; //!< Dolby Vision STB 2.6 native engine
+   unsigned int m_cm40PeakPq = 0;
+   int m_cm40Applied = -1; //!< ... and as given to the renderer (with the expert switch), for the log
+   bool m_cm40Revoked = false; //!< the automatic choice was taken back in the stream of now (told once)
 diff --git a/xbmc/settings/AdvancedSettings.cpp b/xbmc/settings/AdvancedSettings.cpp
 index fde669f..1d09682 100644
 --- a/xbmc/settings/AdvancedSettings.cpp
@@ -27252,6 +27293,29 @@ index 1026d90..8b07c74 100644
    //! Hades: an HDR10+ video is sent as native Dolby Vision, with metadata made from its HDR10+
    //! metadata, where the display takes Dolby Vision and not HDR10+ (DVBRIDGE::Hdr10PlusAsDolbyVision())
    static constexpr auto SETTING_VIDEOSCREEN_HADESDVFROMHDR10PLUS = "videoscreen.hadesdvfromhdr10plus";
+diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+index a6585e5..9c6fc35 100644
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -4612,6 +4612,18 @@ void CWinSystemGbmGLESContext::DVNativeOutputBegins()
+   DVEngineRead();
+   // Hades: what of the metadata the display reads, from its Dolby Vision block
+   m_dvBridge->UseDisplayManagement(DisplayDolbyVisionDmVersion());
++  // Hades: Dolby Vision STB 2.6 native engine setting (videoscreen.hadesdvstb26)
++  {
++    const auto settings = SettingsNow();
++    const auto component = CServiceBroker::GetSettingsComponent();
++    const auto adv = component ? component->GetAdvancedSettings() : nullptr;
++    bool stb26 = true;
++    if (adv && !adv->m_videoDVSTB26Engine)
++      stb26 = false;
++    else if (settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVSTB26))
++      stb26 = settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVSTB26);
++    m_dvBridge->UseSTB26Engine(stb26);
++  }
+   // Hades: ... and the content mapping v4.0 setting, with the peak of the display that its automatic
+   // choice is made against (videoscreen.hadesdvcm40)
+   {
 -- 
 2.43.0
 
