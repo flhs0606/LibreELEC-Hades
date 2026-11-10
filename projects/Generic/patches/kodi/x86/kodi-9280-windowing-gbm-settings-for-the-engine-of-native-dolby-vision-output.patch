@@ -879,7 +879,7 @@ index 3f1d809..7968d09 100644
 +            </and>
 +          </requirement>
 +          <level>2</level>
-+          <default>0</default>
++          <default>2</default>
 +          <constraints>
 +            <options>
 +              <option label="36058">0</option> <!-- automatic: where the GPU cannot keep up -->
