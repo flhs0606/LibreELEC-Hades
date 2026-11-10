@@ -192,7 +192,8 @@ index bd60de6..ca8f0e0 100644
 --- a/system/settings/settings.xml
 +++ b/system/settings/settings.xml
 @@ -3768,7 +3768,8 @@
-           <default>0</default>
+-          <default>0</default>
++          <default>2</default>
            <constraints>
              <options>
 -              <option label="39896">0</option> <!-- as certified players send it -->

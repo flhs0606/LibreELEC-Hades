@@ -295,7 +295,7 @@ index 0000000..62a239e
 +        if (cv->num_pivots < 2 || cv->num_pivots > 9)
 +            FAIL("a component has fewer than 2 or more than 9 pivots");
 +        for (int i = 0; i < cv->num_pivots; i++) {
-+            if (cv->pivots[i] > smax || (i && cv->pivots[i] <= cv->pivots[i - 1]))
++            if (cv->pivots[i] > smax || (i && cv->pivots[i] < cv->pivots[i - 1]))
 +                FAIL("the pivots are not increasing codes of the BL");
 +        }
 +        for (int i = 0; i < cv->num_pivots - 1; i++) {

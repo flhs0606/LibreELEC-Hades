@@ -51,6 +51,9 @@
 # setup project defaults
 ################################################################################
 
+  # Project version branding
+    CUSTOM_VERSION="${CUSTOM_VERSION:-Hades-F1.0-RC8}"
+
   # additional Firmware to use (dvb-firmware, misc-firmware, wlan-firmware)
   # Space separated list is supported,
   # e.g. FIRMWARE="dvb-firmware misc-firmware wlan-firmware"
