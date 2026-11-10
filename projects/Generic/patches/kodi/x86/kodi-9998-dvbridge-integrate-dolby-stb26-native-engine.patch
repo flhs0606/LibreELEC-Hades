@@ -27145,18 +27145,29 @@ index 2c6e96e..d1cf5a7 100644
  #include <stdio.h>
  /* Hades: the display management payload may be up to 512 bytes (ETSI GS CCM 001 6.3.3.3). It goes
   * in packets of 128 bytes, the first carrying 119 of it and every other one 121: five packets for
-@@ -295,6 +296,16 @@ static inline bool dvbridge_dv_area(struct dvbridge_dv *d, unsigned l, unsigned
+@@ -295,6 +296,27 @@ static inline bool dvbridge_dv_area(struct dvbridge_dv *d, unsigned l, unsigned
  static inline bool dvbridge_dv_margins(struct dvbridge_dv *d, unsigned l, unsigned r,
                                         unsigned t, unsigned b, unsigned v[4])
  {
 +    if (dvbridge_is_stb26_engine_enabled()) {
 +        const int w = d->source_w ? d->source_w : 3840;
 +        const int h = d->source_h ? d->source_h : 2160;
-+        dv_stb26_consolidate_active_area((uint32_t)w, (uint32_t)h, l, r, t, b, v);
++        unsigned safe_l5[4] = {0};
++        dv_stb26_consolidate_active_area((uint32_t)w, (uint32_t)h, l, r, t, b, safe_l5);
 +        const unsigned offsets[4] = {l, r, t, b};
 +        memcpy(d->reading.l5, offsets, sizeof(offsets));
-+        memcpy(d->reading.as_given, v, sizeof(d->reading.as_given));
 +        d->reading.l5_master = false;
++        if (w == 3840 && h == 2160) {
++            memcpy(v, safe_l5, sizeof(safe_l5));
++            memcpy(d->reading.as_given, v, sizeof(d->reading.as_given));
++            return true;
++        }
++        const int dw = d->dest_w ? d->dest_w : 3840, dh = d->dest_h ? d->dest_h : 2160;
++        v[0] = d->dest_x + lround((double)safe_l5[0] * dw / w);
++        v[1] = 3840 - d->dest_x - dw + lround((double)safe_l5[1] * dw / w);
++        v[2] = d->dest_y + lround((double)safe_l5[2] * dh / h);
++        v[3] = 2160 - d->dest_y - dh + lround((double)safe_l5[3] * dh / h);
++        memcpy(d->reading.as_given, v, sizeof(d->reading.as_given));
 +        return true;
 +    }
      const int w = d->source_w ? d->source_w : 3840, h = d->source_h ? d->source_h : 2160;
