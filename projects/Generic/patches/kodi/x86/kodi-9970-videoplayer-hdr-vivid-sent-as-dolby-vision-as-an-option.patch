@@ -16,7 +16,7 @@ Vision capable display.
 ---
 
 diff --git a/addons/resource.language.en_gb/resources/strings.po b/addons/resource.language.en_gb/resources/strings.po
-index f038b6e..d60cd8b 100644
+index 4c39223..eafdf65 100644
 --- a/addons/resource.language.en_gb/resources/strings.po
 +++ b/addons/resource.language.en_gb/resources/strings.po
 @@ -26931,6 +26931,18 @@ msgctxt "#40927"
@@ -39,10 +39,10 @@ index f038b6e..d60cd8b 100644
  #: system/settings/settings.xml
  msgctxt "#40990"
 diff --git a/system/settings/settings.xml b/system/settings/settings.xml
-index 0a6be24..1ea8ef0 100644
+index 489dc2f..97e6c11 100644
 --- a/system/settings/settings.xml
 +++ b/system/settings/settings.xml
-@@ -3732,6 +3732,20 @@
+@@ -3717,6 +3717,20 @@
          <default>false</default>
          <control type="toggle" />
        </setting>
@@ -64,10 +64,10 @@ index 0a6be24..1ea8ef0 100644
          <requirement>
            <and>
 diff --git a/tools/dvbridge/CMakeLists.txt b/tools/dvbridge/CMakeLists.txt
-index 37d2148..1258ad7 100644
+index 7d81c14..04adffc 100644
 --- a/tools/dvbridge/CMakeLists.txt
 +++ b/tools/dvbridge/CMakeLists.txt
-@@ -16,7 +16,7 @@ add_subdirectory(dv_stb26)
+@@ -14,7 +14,7 @@ pkg_check_modules(DVVa REQUIRED IMPORTED_TARGET libva)
  add_library(dvbridge_core STATIC dvbridge_core.c dvbridge_placebo.c dvbridge_render.c
                                  dvbridge_gl_frame.c dvbridge_gl_pack.c dvbridge_fel.c dvbridge_dmabuf.c
                                  dvbridge_cache.c dvbridge_verify.c
@@ -323,7 +323,7 @@ index 0000000..b5b4ddf
 +
 +#endif /* DVBRIDGE_HDRVIVID_H */
 diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
-index 776513f..07741df 100644
+index 776513f..758c60d 100644
 --- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
 +++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
 @@ -43,6 +43,7 @@ extern "C"
@@ -342,23 +342,58 @@ index 776513f..07741df 100644
    // Hades: ... whose pictures without HDR10+ statistics of their own are measured from the picture
    // (CDVHdr10PlusFill), unless advancedsettings.xml says otherwise (<video><dvhdr10plusfill>)
    {
-@@ -443,6 +445,7 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
+@@ -442,7 +444,15 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
+     if (!m_dvHdr10PlusScene)
        m_dvHdr10PlusScene = dvbridge_hdr10plus_scene_create();
    }
++  if (m_dvFromHdrVivid)
++  {
++    m_dvConvert = false;
++    m_dvConvertSdr = false;
++    if (!m_dvHdrVividScene)
++      m_dvHdrVividScene = dvbridge_hdrvivid_scene_create();
++  }
    dvbridge_hdr10plus_scene_reset(m_dvHdr10PlusScene);
 +  dvbridge_hdrvivid_scene_reset(m_dvHdrVividScene);
    // Hades: single-layer Dolby Vision with its own RPU, decoded for native output or for the
    // reconstruction: where the processor decodes it, its pictures go to the bridge all the same
    m_dvCpuPictures = (m_dvNativeOutput || m_dvConvert) &&
-@@ -947,6 +950,7 @@ void CDVDVideoCodecFFmpeg::Dispose()
+@@ -947,7 +957,9 @@ void CDVDVideoCodecFFmpeg::Dispose()
    m_dvFromHdr10Plus = false;
    m_dvHdr10PlusFill = false;
    dvbridge_hdr10plus_scene_destroy(m_dvHdr10PlusScene);
 +  dvbridge_hdrvivid_scene_destroy(m_dvHdrVividScene);
    m_dvHdr10PlusScene = nullptr;
++  m_dvHdrVividScene = nullptr;
    m_dvMeasured = false;
    m_dvMeasuredInPlace = false;
-@@ -2238,6 +2242,7 @@ void CDVDVideoCodecFFmpeg::Reset()
+   m_dvMeasuredPlaceholder.clear();
+@@ -1421,6 +1433,24 @@ void CDVDVideoCodecFFmpeg::MakeHdr10PlusMetadata(VideoPicture* picture)
+   }
+ }
+ 
++void CDVDVideoCodecFFmpeg::MakeHdrVividMetadata(VideoPicture* picture)
++{
++  const AVFrameSideData* sd = av_frame_get_side_data(m_pFrame, AV_FRAME_DATA_DYNAMIC_HDR_VIVID);
++  const auto* vivid = sd && sd->size >= sizeof(AVDynamicHDRVivid)
++                          ? reinterpret_cast<const AVDynamicHDRVivid*>(sd->data)
++                          : nullptr;
++  size_t size = 0;
++  bool repeated = false;
++  const AVDOVIMetadata* made = dvbridge_hdrvivid_next(
++      m_dvHdrVividScene, vivid, nullptr, 0,
++      picture->hasDisplayMetadata ? &picture->displayMetadata : nullptr,
++      picture->hasLightMetadata ? &picture->lightMetadata : nullptr, &size, &repeated);
++  picture->doviMeasured = false;
++  picture->doviHdr10Plus = 0;
++  if (made && picture->doviMetadata.Assign(reinterpret_cast<const uint8_t*>(made), size))
++    picture->doviRpuRepeated = repeated;
++}
++
+ // Hades: the metadata of a picture of HDR10 measured as Dolby Vision as it leaves the decoder: profile
+ // 8.1 over the picture, the mastering display as the source range, level 1 from the static metadata
+ // (dvbridge_measured_placeholder()). The window system makes its level 1, level 5 and scene refresh
+@@ -2238,6 +2268,7 @@ void CDVDVideoCodecFFmpeg::Reset()
    m_dvLateInRow = 0;
    // (Hades: the first picture after it refreshes the scene, and none gets metadata from before)
    dvbridge_hdr10plus_scene_reset(m_dvHdr10PlusScene);
@@ -366,7 +401,7 @@ index 776513f..07741df 100644
  #endif
    m_hdr10PlusGap.Flush(); // Hades
    m_started = false;
-@@ -2581,6 +2586,8 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
+@@ -2581,6 +2612,8 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
      // Hades: made from the picture's own HDR10+ metadata (FFmpeg makes none of an RPU there is not)
      else if (m_dvFromHdr10Plus)
        MakeHdr10PlusMetadata(pVideoPicture);
@@ -488,7 +523,7 @@ index 62fcd58..accabac 100644
    //! (CDVDDemuxFFmpeg::ProbeDualHdr10Plus()); and sent as that HDR10+ (DVBRIDGE::DualVerdictOf(),
    //! videoscreen.hadesdualhdr): its base layer with its HDR10+ metadata, its Dolby Vision left aside
 diff --git a/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp b/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
-index 0db9858..553f9fa 100644
+index 0db9858..568a396 100644
 --- a/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
 +++ b/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
 @@ -66,6 +66,7 @@ extern "C"
@@ -585,7 +620,7 @@ index 0db9858..553f9fa 100644
  void CDVDDemuxFFmpeg::UnmakeFromHdr10Plus(CDemuxStream* stream, int streamIdx, const char* why)
  {
    m_dvFromHdr10Plus.erase(streamIdx);
-@@ -1782,6 +1843,28 @@ void CDVDDemuxFFmpeg::UnmakeFromHdr10Plus(CDemuxStream* stream, int streamIdx, c
+@@ -1782,12 +1843,35 @@ void CDVDDemuxFFmpeg::UnmakeFromHdr10Plus(CDemuxStream* stream, int streamIdx, c
  // made so is given back where the choice now says no; one that it looked at and left as it was is
  // looked at again where it may now say yes (the packets after the seek that VideoPlayer makes).
  // A stream's own Dolby Vision is never touched.
@@ -614,7 +649,37 @@ index 0db9858..553f9fa 100644
  void CDVDDemuxFFmpeg::DVOutputChoiceChanged()
  {
    if (!m_pFormatContext)
-@@ -2975,6 +3058,7 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int streamIdx)
+     return;
+   const bool measured = DVBRIDGE::Hdr10AsDolbyVision();
+   const bool fromHdr10Plus = DVBRIDGE::Hdr10PlusAsDolbyVision();
++  const bool fromHdrVivid = DVBRIDGE::HdrVividAsDolbyVision();
+   for (unsigned int i = 0; i < m_pFormatContext->nb_streams; ++i)
+   {
+     const int streamIdx = static_cast<int>(i);
+@@ -1821,12 +1905,21 @@ void CDVDDemuxFFmpeg::DVOutputChoiceChanged()
+       }
+       continue;
+     }
++    if (m_dvFromHdrVivid.count(streamIdx))
++    {
++      if (!fromHdrVivid)
++      {
++        UnmakeFromHdrVivid(stream, streamIdx, "the user chose another output for this video");
++        m_dvProbed[streamIdx] = std::numeric_limits<unsigned int>::max();
++      }
++      continue;
++    }
+     // its own Dolby Vision (from the container or its RPUs), or not HEVC: not this demuxer's to make
+     if (video->hdr_type == StreamHdrType::HDR_TYPE_DOLBYVISION || video->dovi.dv_profile ||
+         stream->codec != AV_CODEC_ID_HEVC || streamIdx == m_dvBaseIndex ||
+         streamIdx == m_dvEnhancementIndex)
+       continue;
+-    if (measured || fromHdr10Plus)
++    if (measured || fromHdr10Plus || fromHdrVivid)
+     {
+       m_dvProbed[streamIdx] = 0;
+       CLog::Log(LOGINFO,
+@@ -2975,6 +3068,7 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int streamIdx)
            st->hdr_type = StreamHdrType::HDR_TYPE_DOLBYVISION;
            st->dovi = promoted->second;
            st->doviFromHdr10Plus = m_dvFromHdr10Plus.count(streamIdx) != 0;
@@ -924,10 +989,10 @@ index ce754ea..2527b7d 100644
      return "Dolby Vision";
    if (type == "hlg")
 diff --git a/xbmc/settings/Settings.h b/xbmc/settings/Settings.h
-index 25c0216..8b07c74 100644
+index 27a805d..1026d90 100644
 --- a/xbmc/settings/Settings.h
 +++ b/xbmc/settings/Settings.h
-@@ -459,6 +459,9 @@ public:
+@@ -458,6 +458,9 @@ public:
    //! Hades: an HDR10+ video is sent as native Dolby Vision, with metadata made from its HDR10+
    //! metadata, where the display takes Dolby Vision and not HDR10+ (DVBRIDGE::Hdr10PlusAsDolbyVision())
    static constexpr auto SETTING_VIDEOSCREEN_HADESDVFROMHDR10PLUS = "videoscreen.hadesdvfromhdr10plus";
