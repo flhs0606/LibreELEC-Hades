@@ -5,8 +5,8 @@ PKG_SHA256="99bcf964ce4e869d823c99b2294562a9050cbfa8e76ec81c8683cb3c7e19c2b4"
 PKG_LICENSE="MIT"
 PKG_SITE="https://github.com/microsoft/onnxruntime"
 PKG_URL="https://github.com/microsoft/onnxruntime/archive/refs/tags/v${PKG_VERSION}.tar.gz"
-PKG_DEPENDS_TARGET="toolchain flatbuffers"
-PKG_DEPENDS_UNPACK="ort-abseil-cpp ort-date ort-eigen3 ort-gsl ort-mp11 ort-nlohmann-json ort-onnx ort-protobuf ort-re2 ort-safeint ort-protoc-binary"
+PKG_DEPENDS_TARGET="toolchain"
+PKG_DEPENDS_UNPACK="ort-abseil-cpp ort-date ort-eigen3 ort-flatbuffers ort-gsl ort-mp11 ort-nlohmann-json ort-onnx ort-protobuf ort-re2 ort-safeint ort-pytorch-cpuinfo ort-protoc-binary"
 PKG_LONGDESC="CPU-only ONNX Runtime for bounded, passive PGS subtitle identification."
 PKG_BUILD_FLAGS="-lto"
 PKG_TOOLCHAIN="cmake"
@@ -15,6 +15,7 @@ PKG_CMAKE_OPTS_TARGET="-Donnxruntime_BUILD_SHARED_LIB=ON \
  -Donnxruntime_ENABLE_PYTHON=OFF -Donnxruntime_DISABLE_ML_OPS=ON \
  -Donnxruntime_DISABLE_CONTRIB_OPS=ON -Donnxruntime_ENABLE_LTO=OFF \
  -Donnxruntime_USE_CUDA=OFF -Donnxruntime_USE_OPENMP=OFF -Donnxruntime_DEV_MODE=OFF \
+ -DCMAKE_DISABLE_FIND_PACKAGE_flatbuffers=ON -DCMAKE_DISABLE_FIND_PACKAGE_Flatbuffers=ON \
  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF"
 
 configure_package() {

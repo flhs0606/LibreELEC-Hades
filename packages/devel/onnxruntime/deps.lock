@@ -1,6 +1,7 @@
 abseil_cpp;ort-abseil-cpp;ort-abseil-cpp-20250512.0.zip;520551a68a57f58be691151d59918a7ddcd8d727f81c0bb530bca272f985e674
 date;ort-date;ort-date-v3.0.1.zip;f4300b96f7a304d4ef9bf6e0fa3ded72159f7f2d0f605bdde3e030a0dba7cf9f
 eigen;ort-eigen3;ort-eigen3-1d8b82b0740839c0de7f1242a3585e3390ff5f33.zip;6a60d76351f97132669daeeb721d6bf14b008101883ad2d687a3201c5c461eb0
+flatbuffers;ort-flatbuffers;ort-flatbuffers-v23.5.26.zip;57bd580c0772fd1a726c34ab8bf05325293bc5f9c165060a898afa1feeeb95e1
 microsoft_gsl;ort-gsl;ort-gsl-v4.0.0.zip;eb91fcb10a6aa5ccb1d224e07a56c8ecffe9a1bb601fa1848276ec46a2200bfb
 mp11;ort-mp11;ort-mp11-boost-1.82.0.zip;81431bdc44c439a324e02c07ed067f8f556419fd86f2d8b486ff568df6aac899
 json;ort-nlohmann-json;ort-nlohmann-json-v3.11.3.zip;04022b05d806eb5ff73023c280b68697d12b93e1b7267a0b22a1a39ec7578069
@@ -8,4 +9,5 @@ onnx;ort-onnx;ort-onnx-v1.18.0.zip;23b6f113b05ac7aa7fac0128df69aca2eabd8c8f92d2e
 protobuf;ort-protobuf;ort-protobuf-v21.12.zip;6a31b662deaeb0ac35e6287bda2f3369b19836e6c9f8828d4da444346f420298
 re2;ort-re2;ort-re2-2024-07-02.zip;a835fe55fbdcd8e80f38584ab22d0840662c67f2feb36bd679402da9641dc71e
 safeint;ort-safeint;ort-safeint-3.0.28.zip;3ffbd9a2fdff45da77da3e7269e9aa512ea43bed5c38ce8fd8f3d1068a032c3f
+pytorch_cpuinfo;ort-pytorch-cpuinfo;ort-pytorch-cpuinfo-8a1772a0c5c447df2d18edf33ec4603a8c9c04a6.zip;4bf314b3f04db2fd984fef38a7e278e702b74297ef0af592b73296edba02b9d4
 protoc_linux_x64;ort-protoc-binary;ort-protoc-binary-protoc-21.12-linux-x86_64.zip;3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8
