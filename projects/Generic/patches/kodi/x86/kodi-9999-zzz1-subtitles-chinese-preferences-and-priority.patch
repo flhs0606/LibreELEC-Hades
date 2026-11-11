@@ -1,0 +1,265 @@
+From a7a9f1830489508fe36ea2170bd330a3864a8a62 Mon Sep 17 00:00:00 2001
+From: forbxy <forbxy@github.com>
+Date: Tue, 3 Nov 2026 10:30:17 +0800
+Subject: [PATCH] Fix Chinese subtitle preferences and priority
+
+Adapted for LibreELEC-Hades (Kodi 22 Piers CLanguageTag BCP 47 architecture).
+---
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp   | 13 +++-
+ xbmc/utils/CMakeLists.txt                |  2 +
+ xbmc/utils/SubtitleLanguage.cpp          | 93 ++++++++++++++++++++++++
+ xbmc/utils/SubtitleLanguage.h            | 19 +++++
+ xbmc/utils/test/CMakeLists.txt           |  1 +
+ xbmc/utils/test/TestSubtitleLanguage.cpp | 45 ++++++++++++
+ 6 files changed, 172 insertions(+), 1 deletion(-)
+ create mode 100644 xbmc/utils/SubtitleLanguage.cpp
+ create mode 100644 xbmc/utils/SubtitleLanguage.h
+ create mode 100644 xbmc/utils/test/TestSubtitleLanguage.cpp
+
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+index 2f6d11119db..81cd3420b25 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+@@ -64,6 +64,7 @@
+ #include "utils/StreamDetails.h"
+ #include "utils/StreamUtils.h"
+ #include "utils/StringUtils.h"
++#include "utils/SubtitleLanguage.h"
+ #include "utils/URIUtils.h"
+ #include "utils/Variant.h"
+ #include "utils/log.h"
+@@ -161,7 +162,9 @@ public:
+   // \brief Whether a stream is in the language the settings ask for
+   bool MatchesSubtitleLanguage(const CLanguageTag& language) const
+   {
+-    return language.Matches(m_subLang);
++    return language.Matches(m_subLang) ||
++           (CSubtitleLanguage::IsChinese(language.AsBcp47()) &&
++            CSubtitleLanguage::IsChinese(m_subLang.AsBcp47()));
+   }
+
+   // \brief Whether a stream is in the language of the audio being played. Both languages must be
+@@ -415,6 +418,14 @@ public:
+     // try find regular
+     PREDICATE_RETURN(isLincluded && isLSameSubLang, isRincluded && isRSameSubLang);
+
++    // Only break a tie left by the existing saved-stream, source, accessibility,
++    // language and default-track rules. Unlabelled Chinese tracks retain order.
++    if (IsKnownLanguage(lh.language) && IsKnownLanguage(rh.language))
++    {
++      PREDICATE_RETURN(CSubtitleLanguage::IsSimplifiedChinese(lh.language.AsBcp47(), lh.name),
++                       CSubtitleLanguage::IsSimplifiedChinese(rh.language.AsBcp47(), rh.name));
++    }
++
+     // if all previous conditions do not match, allow fallback to "unknown" language
+     if (!m_filter.IsPreferredForced())
+     {
+diff --git a/xbmc/utils/CMakeLists.txt b/xbmc/utils/CMakeLists.txt
+index 21bbbc6765b..98f097b7398 100644
+--- a/xbmc/utils/CMakeLists.txt
++++ b/xbmc/utils/CMakeLists.txt
+@@ -70,6 +70,7 @@ set(SOURCES ActorProtocol.cpp
+             StreamUtils.cpp
+             StringUtils.cpp
+             StringValidation.cpp
++            SubtitleLanguage.cpp
+             SystemInfo.cpp
+             Temperature.cpp
+             TextSearch.cpp
+@@ -185,6 +186,7 @@ set(HEADERS ActorProtocol.h
+             StreamUtils.h
+             StringUtils.h
+             StringValidation.h
++            SubtitleLanguage.h
+             SystemInfo.h
+             Temperature.h
+             TextSearch.h
+diff --git a/xbmc/utils/SubtitleLanguage.cpp b/xbmc/utils/SubtitleLanguage.cpp
+new file mode 100644
+index 00000000000..b97216b3fc9
+--- /dev/null
++++ b/xbmc/utils/SubtitleLanguage.cpp
+@@ -0,0 +1,93 @@
++/*
++ *  SPDX-License-Identifier: GPL-2.0-or-later
++ *  See LICENSES/README.md for more information.
++ */
++
++#include "SubtitleLanguage.h"
++
++#include <array>
++#include <string>
++
++namespace
++{
++std::string LowerASCII(std::string_view value)
++{
++  std::string lower(value);
++  for (char& c : lower)
++  {
++    if (c >= 'A' && c <= 'Z')
++      c += 'a' - 'A';
++  }
++  return lower;
++}
++
++bool IsASCIIAlphanumeric(char c)
++{
++  return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
++}
++
++bool HasWord(std::string_view value, std::string_view word)
++{
++  size_t offset = 0;
++  while ((offset = value.find(word, offset)) != std::string_view::npos)
++  {
++    const size_t end = offset + word.size();
++    if ((offset == 0 || !IsASCIIAlphanumeric(value[offset - 1])) &&
++        (end == value.size() || !IsASCIIAlphanumeric(value[end])))
++      return true;
++    offset = end;
++  }
++  return false;
++}
++
++bool HasSubtag(std::string_view language, std::string_view subtag)
++{
++  size_t offset = language.find_first_of("-_");
++  while (offset != std::string_view::npos)
++  {
++    const size_t next = language.find_first_of("-_", offset + 1);
++    if (language.substr(offset + 1, next - offset - 1) == subtag)
++      return true;
++    offset = next;
++  }
++  return false;
++}
++} // namespace
++
++bool CSubtitleLanguage::IsChinese(std::string_view language)
++{
++  const std::string primary = LowerASCII(language.substr(0, language.find_first_of("-_")));
++  return primary == "zh" || primary == "chi" || primary == "zho" || primary == "chs" ||
++         primary == "cht";
++}
++
++bool CSubtitleLanguage::IsSimplifiedChinese(std::string_view language, std::string_view title)
++{
++  if (!IsChinese(language))
++    return false;
++
++  const std::string code = LowerASCII(language);
++  const bool hans = HasSubtag(code, "hans") || code == "chs";
++  const bool hant = HasSubtag(code, "hant") || code == "cht";
++  if (hans || hant)
++    return hans && !hant;
++
++  const std::string label = LowerASCII(title);
++  constexpr std::array<std::string_view, 8> simplifiedLabels{
++      "简体", "簡體", "简中", "簡中", "简英", "簡英", "中简", "中簡"};
++  constexpr std::array<std::string_view, 5> traditionalLabels{
++      "繁体", "繁體", "繁中", "繁英", "中繁"};
++  bool simplified = HasWord(label, "chs") || HasWord(label, "simplified") ||
++                    HasWord(label, "simple");
++  bool traditional = HasWord(label, "cht") || HasWord(label, "traditional");
++  for (const auto marker : simplifiedLabels)
++    simplified |= label.find(marker) != std::string::npos;
++  for (const auto marker : traditionalLabels)
++    traditional |= label.find(marker) != std::string::npos;
++  if (simplified || traditional)
++    return simplified && !traditional;
++
++  // A region is weaker evidence than an explicit script or track title.
++  return (HasSubtag(code, "cn") || HasSubtag(code, "sg")) &&
++         !HasSubtag(code, "tw") && !HasSubtag(code, "hk") && !HasSubtag(code, "mo");
++}
+diff --git a/xbmc/utils/SubtitleLanguage.h b/xbmc/utils/SubtitleLanguage.h
+new file mode 100644
+index 00000000000..d6836903a61
+--- /dev/null
++++ b/xbmc/utils/SubtitleLanguage.h
+@@ -0,0 +1,19 @@
++/*
++ *  SPDX-License-Identifier: GPL-2.0-or-later
++ *  See LICENSES/README.md for more information.
++ */
++
++#pragma once
++
++#include <string_view>
++
++class CSubtitleLanguage
++{
++public:
++  // Recognize Chinese language codes, including script/region subtags.
++  static bool IsChinese(std::string_view language);
++
++  // Use explicit script tags, then title labels, then region hints. Do not
++  // guess the writing system of an otherwise unlabelled Chinese track.
++  static bool IsSimplifiedChinese(std::string_view language, std::string_view title);
++};
+diff --git a/xbmc/utils/test/CMakeLists.txt b/xbmc/utils/test/CMakeLists.txt
+index d650f8fd260..a7440bcf77e 100644
+--- a/xbmc/utils/test/CMakeLists.txt
++++ b/xbmc/utils/test/CMakeLists.txt
+@@ -50,6 +50,7 @@ set(SOURCES TestAlarmClock.cpp
+             TestStreamDetails.cpp
+             TestStreamUtils.cpp
+             TestStringUtils.cpp
++            TestSubtitleLanguage.cpp
+             TestSystemInfo.cpp
+             TestURIUtils.cpp
+             TestUrlOptions.cpp
+diff --git a/xbmc/utils/test/TestSubtitleLanguage.cpp b/xbmc/utils/test/TestSubtitleLanguage.cpp
+new file mode 100644
+index 00000000000..810c25f5d29
+--- /dev/null
++++ b/xbmc/utils/test/TestSubtitleLanguage.cpp
+@@ -0,0 +1,45 @@
++/*
++ *  SPDX-License-Identifier: GPL-2.0-or-later
++ *  See LICENSES/README.md for more information.
++ */
++
++#include "utils/SubtitleLanguage.h"
++
++#include <gtest/gtest.h>
++
++TEST(TestSubtitleLanguage, ChineseCodes)
++{
++  for (const auto code : {"zh", "chi", "zho", "ZH-Hans-CN", "zho-Hant", "zh_CN", "chs", "cht"})
++    EXPECT_TRUE(CSubtitleLanguage::IsChinese(code)) << code;
++  for (const auto code : {"", "und", "eng", "jpn", "zhuang", "Chinese"})
++    EXPECT_FALSE(CSubtitleLanguage::IsChinese(code)) << code;
++}
++
++TEST(TestSubtitleLanguage, ExplicitScriptAndRegion)
++{
++  for (const auto code : {"zh-Hans", "chi-Hans", "ZH_hans_CN", "chs", "zh-CN", "zh-SG"})
++    EXPECT_TRUE(CSubtitleLanguage::IsSimplifiedChinese(code, "")) << code;
++  for (const auto code : {"zh-Hant", "zho-Hant", "cht", "zh-TW", "zh-HK", "zh-MO",
++                          "chi", "zh", "zho", "zh-Hans-Hant"})
++    EXPECT_FALSE(CSubtitleLanguage::IsSimplifiedChinese(code, "")) << code;
++}
++
++TEST(TestSubtitleLanguage, TrackLabels)
++{
++  for (const auto title : {"简体中文", "簡體中文", "简中", "简英双语", "中简", "CHS",
++                           "Chinese (Simple)", "Chinese (Simplified)", "[chs-eng]", "简体（SDR）"})
++    EXPECT_TRUE(CSubtitleLanguage::IsSimplifiedChinese("chi", title)) << title;
++  for (const auto title : {"繁體中文", "繁中", "繁英双语", "CHT", "Chinese (Traditional)",
++                           "", "中文", "Simplified / Traditional", "简体／繁體", "schs", "Simpleton"})
++    EXPECT_FALSE(CSubtitleLanguage::IsSimplifiedChinese("chi", title)) << title;
++  EXPECT_FALSE(CSubtitleLanguage::IsSimplifiedChinese("eng", "简体中文"));
++  EXPECT_FALSE(CSubtitleLanguage::IsSimplifiedChinese("und", "CHS"));
++}
++
++TEST(TestSubtitleLanguage, EvidencePrecedence)
++{
++  EXPECT_TRUE(CSubtitleLanguage::IsSimplifiedChinese("zh-Hans", "繁體"));
++  EXPECT_FALSE(CSubtitleLanguage::IsSimplifiedChinese("zh-Hant", "简体"));
++  EXPECT_FALSE(CSubtitleLanguage::IsSimplifiedChinese("zh-CN", "繁體"));
++  EXPECT_TRUE(CSubtitleLanguage::IsSimplifiedChinese("zh-TW", "简体"));
++}
+--
+2.43.0
