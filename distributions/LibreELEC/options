@@ -26,8 +26,9 @@
 # The version here is the one of Hades, and goes with its name alone.
   BUILDER_NAME="${BUILDER_NAME:-Hades}"
   if [ "${BUILDER_NAME}" = "Hades" ]; then
-    BUILDER_VERSION="${BUILDER_VERSION-1.0}"
+    BUILDER_VERSION="${BUILDER_VERSION-F1.0}"
   fi
+  CUSTOM_VERSION="${CUSTOM_VERSION:-Hades-F1.0}" 
 
 # Welcome Message for SSH Server (up to 5 Lines)
   GREETING0="##############################################"
