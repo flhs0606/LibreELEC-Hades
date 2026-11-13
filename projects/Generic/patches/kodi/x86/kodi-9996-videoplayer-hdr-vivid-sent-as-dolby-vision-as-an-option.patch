@@ -161,7 +161,7 @@ diff --git a/system/settings/settings.xml b/system/settings/settings.xml
 index de219e10cdf..02e7453ad99 100644
 --- a/system/settings/settings.xml
 +++ b/system/settings/settings.xml
-@@ -3778,6 +3778,20 @@
+@@ -3763,6 +3763,20 @@
          <default>false</default>
          <control type="toggle" />
        </setting>
@@ -183,10 +183,10 @@ index de219e10cdf..02e7453ad99 100644
          <requirement>
            <and>
 diff --git a/tools/dvbridge/CMakeLists.txt b/tools/dvbridge/CMakeLists.txt
-index 13555330e0e..c765b93cf1b 100644
+index 4cd0d7e4ad0..c765b93cf1b 100644
 --- a/tools/dvbridge/CMakeLists.txt
 +++ b/tools/dvbridge/CMakeLists.txt
-@@ -19,7 +19,7 @@ add_subdirectory(dv_stb26)
+@@ -16,7 +16,7 @@ find_package(Threads REQUIRED)
  add_library(dvbridge_core STATIC dvbridge_core.c dvbridge_placebo.c dvbridge_render.c
                                  dvbridge_gl_frame.c dvbridge_gl_pack.c dvbridge_fel.c dvbridge_dmabuf.c
                                  dvbridge_cache.c dvbridge_verify.c dvbridge_guimask.c
@@ -1187,10 +1187,10 @@ index 3e19c60cd79..2a3f8791df2 100644
      return "Dolby Vision";
    if (type == "hlg")
 diff --git a/xbmc/settings/Settings.h b/xbmc/settings/Settings.h
-index 6b6011f36bc..bc8d8d0ea02 100644
+index 068e85b5de6..bc8d8d0ea02 100644
 --- a/xbmc/settings/Settings.h
 +++ b/xbmc/settings/Settings.h
-@@ -501,6 +501,9 @@ public:
+@@ -500,6 +500,9 @@ public:
    //! Hades: an HDR10+ video is sent as native Dolby Vision, with metadata made from its HDR10+
    //! metadata, where the display takes Dolby Vision and not HDR10+ (DVBRIDGE::Hdr10PlusAsDolbyVision())
    static constexpr auto SETTING_VIDEOSCREEN_HADESDVFROMHDR10PLUS = "videoscreen.hadesdvfromhdr10plus";
@@ -1296,7 +1296,7 @@ index 9d4c58d9ca9..d7b9e078704 100644
      return list;
    }
 diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
-index 53c98b1a225..d45ed4e63f5 100644
+index f38debc5189..d45ed4e63f5 100644
 --- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
 +++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
 @@ -2584,7 +2584,8 @@ std::atomic<int> g_dvDecoderShortfall{static_cast<int>(DVBRIDGE::DecoderShortfal
@@ -1413,7 +1413,7 @@ index 53c98b1a225..d45ed4e63f5 100644
  bool DVBRIDGE::WantsConversion(const VideoPicture* picture, int toneMapMethod)
  {
    // Not by whether this picture has its metadata: one without it is only not reconstructed, and
-@@ -8298,7 +8324,8 @@ void CWinSystemGbmGLESContext::PublishDVInfo(bool force)
+@@ -8286,7 +8312,8 @@ void CWinSystemGbmGLESContext::PublishDVInfo(bool force)
      // (Hades: measured because this output cannot send HDR10: DVBRIDGE::Hdr10AsDolbyVision())
      // (Hades: made from HDR10+, and in Low-Latency mapped by the tone curve of the picture's HDR10+ metadata)
      if (origin)
