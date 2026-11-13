@@ -1,0 +1,14 @@
+--- a/cmake/onnxruntime_mlas.cmake
++++ b/cmake/onnxruntime_mlas.cmake
+@@ -385,7 +385,10 @@
+         enable_language(ASM)
+ 
+         set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -mfpu=neon")
+-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpu=neon")
++        # Respect the target toolchain FPU (e.g. ARMv8 round intrinsics).
++        if(NOT CMAKE_CXX_FLAGS MATCHES "-mfpu=")
++          set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpu=neon")
++        endif()
+ 
+         set(mlas_platform_srcs
+           ${MLAS_SRC_DIR}/aarch32/QgemmU8X8KernelNeon.S
