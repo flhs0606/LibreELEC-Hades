@@ -1,0 +1,167 @@
+--- a/xbmc/resources/LocalizeStrings.cpp
++++ b/xbmc/resources/LocalizeStrings.cpp
+--- 
++++ 
+@@ -64,7 +64,9 @@
+         strings[id + offset].strTranslated = PODoc.GetMsgid();
+         counter++;
+       }
+-      else if (!bSourceLanguage && !bStrInMem && !PODoc.GetMsgstr().empty())
++      else if (!bSourceLanguage && !PODoc.GetMsgstr().empty() &&
++               (!bStrInMem || strings[id + offset].strOriginal.empty() ||
++                PODoc.GetMsgid() == strings[id + offset].strOriginal))
+       {
+         strings[id + offset].strTranslated = PODoc.GetMsgstr();
+         strings[id + offset].strOriginal = PODoc.GetMsgid();
+@@ -155,6 +157,14 @@
+   if (!LoadWithFallback(strPathName, strLanguage, strings))
+     return false;
+ 
++  // Hades: the translations this build adds to its own settings ship with the image, and
++  // merge over whatever the chosen language addon carried, so that they do not wait on that
++  // addon's releases. An override file is absent for most languages, which changes nothing.
++  std::string encoding;
++  LoadPO(CSpecialProtocol::TranslatePath("special://xbmc/system/language-overrides/" +
++                                         strLanguage + ".po"),
++         strings, encoding);
++
+   // fill in the constant strings
+   strings[20022].strTranslated = "";
+   strings[20027].strTranslated = "°F";
+--- a/cmake/installdata/common/common.txt
++++ b/cmake/installdata/common/common.txt
+--- 
++++ 
+@@ -6,6 +6,7 @@
+ system/hades/*
+ system/keyboardlayouts/*
+ system/keymaps/*
++system/language-overrides/*
+ system/language-subtag-registry.txt
+ system/library/*
+ system/peripherals.xml
+--- /dev/null
++++ b/system/language-overrides/resource.language.zh_cn.po
+@@ -0,0 +1,122 @@
++# Hades: the translations of the settings this build adds, merged over the language
++# addon by LocalizeStrings::Load. Keys are the core string ids of the English texts.
++msgid ""
++msgstr "Content-Type: text/plain; charset=UTF-8\n"
++"Language: zh_CN\n"
++"Plural-Forms: nplurals=1; plural=0;\n"
++
++msgctxt "#41854"
++msgid "Dynamic tone mapping"
++msgstr "动态色调映射"
++
++msgctxt "#41855"
++msgid "Picture quality"
++msgstr "画质"
++
++msgctxt "#41856"
++msgid "Map every frame to SDR"
++msgstr "逐帧映射至 SDR"
++
++msgctxt "#41857"
++msgid "The picture of every HDR video is measured frame by frame and mapped to the white, the gamma and the gamut chosen below, whatever the TV or projector takes. HDR videos then play with the lights of the room in mind instead of the mastering display's: on an SDR display, with HDR turned off, and on an HDR display by choice. While this is on, it takes the place of Dolby Vision output, HDR10 output and Kodi's own tone mapping."
++msgstr "每段 HDR 视频的画面都会被逐帧测量，并按下方选定的白点、Gamma 和色域重新映射，无论电视机或投影仪接收的是什么。HDR 视频由此按房间光线而非制作监视器来呈现：SDR 显示器（关闭 HDR）与 HDR 显示器（按需开启）皆可。开启期间，它取代杜比视界输出、HDR10 输出和 Kodi 自身的色调映射。"
++
++msgctxt "#41858"
++msgid "Target white"
++msgstr "目标白点"
++
++msgctxt "#41859"
++msgid "The white that the mapped picture is made for, in cd/m². 500 suits a bright room; a dark one takes 100 to 200. Takes effect from the next video."
++msgstr "映射画面的目标白点，单位 cd/m²。明亮的房间适合 500，昏暗的房间取 100 至 200。自下一部视频起生效。"
++
++msgctxt "#41860"
++msgid "Target gamma"
++msgstr "目标 Gamma"
++
++msgctxt "#41861"
++msgid "The gamma of the mapped picture. 1.8 suits a bright room; a dark one takes 2.2 to 2.4. Takes effect from the next video."
++msgstr "映射画面的 Gamma。明亮的房间适合 1.8，昏暗的房间取 2.2 至 2.4。自下一部视频起生效。"
++
++msgctxt "#41862"
++msgid "Target colour gamut"
++msgstr "目标色域"
++
++msgctxt "#41863"
++msgid "The gamut that the mapped picture is made for: that of the display, or a wider one where its screen shows it. Takes effect from the next video."
++msgstr "映射画面的目标色域：显示器的色域，或其面板能呈现的更广色域。自下一部视频起生效。"
++
++msgctxt "#41864"
++msgid "Tone curve"
++msgstr "色调曲线"
++
++msgctxt "#41865"
++msgid "The curve that maps the picture: BT.2390 as Dolby Vision maps it, BT.2390 with libplacebo's knee, or the spline of the ITU's reference display. Takes effect from the next video."
++msgstr "映射所用的曲线：BT.2390（杜比视界的映射方式）、带 libplacebo 拐点的 BT.2390，或 ITU 基准显示器的样条曲线。自下一部视频起生效。"
++
++msgctxt "#41866"
++msgid "Contrast recovery"
++msgstr "对比度恢复"
++
++msgctxt "#41867"
++msgid "How much of the contrast that the frame-by-frame mapping takes from a dark scene is given back to it, in percent. 0 leaves the frame as the curve maps it; 20 keeps most of the life of a night scene. Takes effect from the next video."
++msgstr "逐帧映射从暗场收走的对比度，按百分比归还多少给它。0 表示完全按曲线映射；20 能保住夜景大部分的生气。自下一部视频起生效。"
++
++msgctxt "#41868"
++msgid "Map every frame to HDR"
++msgstr "逐帧映射至 HDR"
++
++msgctxt "#41869"
++msgid "The picture of every HDR video is measured frame by frame and mapped to the peak and the gamut chosen below: an HDR10 output whose picture follows what the video shows, frame by frame, where its own metadata say less. While this is on, it takes the place of Dolby Vision output, HDR10 output and Kodi's own tone mapping."
++msgstr "每段 HDR 视频的画面都会被逐帧测量，并按下方选定的峰值和色域重新映射：得到一部画面随内容逐帧变化的 HDR10 输出，在其自身元数据说得较少之处补足。开启期间，它取代杜比视界输出、HDR10 输出和 Kodi 自身的色调映射。"
++
++msgctxt "#41870"
++msgid "Target display peak"
++msgstr "目标显示峰值"
++
++msgctxt "#41871"
++msgid "The peak that the mapped picture is made for, in cd/m², where the display's own peak is not taken: 800 suits a bright room. Takes effect from the next video."
++msgstr "映射画面的目标峰值，单位 cd/m²，用于不采用显示器自身峰值之处：明亮的房间适合 800。自下一部视频起生效。"
++
++msgctxt "#41872"
++msgid "Target colour gamut"
++msgstr "目标色域"
++
++msgctxt "#41873"
++msgid "The gamut that the mapped picture is made for: that of the display, or a wider one where its screen shows it. Takes effect from the next video."
++msgstr "映射画面的目标色域：显示器的色域，或其面板能呈现的更广色域。自下一部视频起生效。"
++
++msgctxt "#41874"
++msgid "Tone curve"
++msgstr "色调曲线"
++
++msgctxt "#41875"
++msgid "The curve that maps the picture: BT.2390 as Dolby Vision maps it, BT.2390 with libplacebo's knee, or the spline of the ITU's reference display. Takes effect from the next video."
++msgstr "映射所用的曲线：BT.2390（杜比视界的映射方式）、带 libplacebo 拐点的 BT.2390，或 ITU 基准显示器的样条曲线。自下一部视频起生效。"
++
++msgctxt "#41876"
++msgid "Contrast recovery"
++msgstr "对比度恢复"
++
++msgctxt "#41877"
++msgid "How much of the contrast that the frame-by-frame mapping takes from a dark scene is given back to it, in percent. 0 leaves the frame as the curve maps it; 20 keeps most of the life of a night scene. Takes effect from the next video."
++msgstr "逐帧映射从暗场收走的对比度，按百分比归还多少给它。0 表示完全按曲线映射；20 能保住夜景大部分的生气。自下一部视频起生效。"
++
++msgctxt "#41878"
++msgid "Picture quality mode"
++msgstr "画质模式"
++
++msgctxt "#41879"
++msgid "How much of the graphics card's power is spent on the picture: Standard keeps a small card in step with the film, High spends more of a faster one, and Ultra takes a card of its own. Standard is what Hades plays without this setting."
++msgstr "显卡的算力有多少用在画面上：标准让小显卡跟得上影片，高让更快的显卡多投入一些，极致则需要一块独当一面的显卡。标准就是 Hades 不动这项设置时的播放方式。"
++
++msgctxt "#41880"
++msgid "Standard"
++msgstr "标准"
++
++msgctxt "#41881"
++msgid "High"
++msgstr "高"
++
++msgctxt "#41882"
++msgid "Ultra"
++msgstr "极致"

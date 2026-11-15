@@ -45,8 +45,10 @@
 ### 2.1 模式 A（推荐首选）：HDR 转 10-bit WCG-SDR 投影模式
 - **对应官方选项**：【设置 -> 显示 -> SDR 目标显示设备（`videoscreen.hadesdvsdrtarget`）】
   - 选项 `2`: **Projector (100 cd/m², Gamma 2.4)**
-  - 选项 `3`: **Custom (自定义白点 20~500 nits 与 Gamma 1.8~2.8)**
+  - 选项 `3`: **Custom (自定义白点 20~1500 nits 与 Gamma 1.8~2.8)**
   - 配套色域子项：**`videoscreen.hadesdvsdrgamut`**（**BT.2020** / **DCI-P3** / **BT.709**）
+  - 配套曲线子项：**`videoscreen.hadesdvsdrcurve`**（**BT.2390** / **Spline 样条曲线** / **BT.2390 with libplacebo knee**）
+  - 配套对比度恢复：**`videoscreen.hadesdtmrecovery`**（0~100%，默认 0）
 - **物理机理与色域支持（BT.2020 广色域）**：
   - **色彩与动态范围彻底解耦**：在国际标准（CTA-861-G / ITU-R BT.2020）中，BT.2020 仅代表色度坐标范围，可与任意传输函数搭配。
   - **AVI InfoFrame 广播**：播放器输出 SDR 时，DRM 彻底卸载 `HDR_OUTPUT_METADATA`，但在 HDMI AVI InfoFrame 中发送 `Extended Colorimetry = BT.2020_RGB`。
@@ -81,9 +83,12 @@
 
 ### 4.1 `tools/dvbridge/dvbridge_placebo.h`
 
-#### [tools/dvbridge/dvbridge_placebo.h:136-175](build.LibreELEC-Generic.x86_64-13.0-devel/build/kodi-22.0rc2-Piers/tools/dvbridge/dvbridge_placebo.h#L136-L175)
-在 `struct dvbridge_hdr10_mapping` 尾部扩展 DTM 字段：
+#### [tools/dvbridge/dvbridge_placebo.h:133-175](build.LibreELEC-Generic.x86_64-13.0-devel/build/kodi-22.0rc2-Piers/tools/dvbridge/dvbridge_placebo.h#L133)
+放宽自定义 SDR 目标白点上限至 1500 nits（支持 800~1000 nits 高亮度电视接入 SDR 映射），并在 `struct dvbridge_hdr10_mapping` 尾部扩展 DTM 字段：
 ```c
+/* Hades: custom SDR target white ceiling extended to 1500 nits for high-brightness TVs */
+#define DVBRIDGE_SDR_WHITE_MAX 1500.0f
+
 struct dvbridge_hdr10_mapping {
     bool enabled;
     float peak;                      /* of the display, cd/m2 (for SDR, its white) */
@@ -429,6 +434,11 @@ int CRendererVAAPIGLES::RenderPlainMapping(int idx)
       {
         mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT2020;
       }
+      if (settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVSDRCURVE))
+      {
+        mapping.curve = dvbridge_hdr10_curve_of_setting(
+            settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVSDRCURVE));
+      }
       mapping.dynamic_target = true;
       mapping.contrast_recovery = settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMRECOVERY)
                                       ? settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMRECOVERY) / 100.0f
@@ -636,7 +646,20 @@ int CWinSystemGbmGLESContext::RenderPlainMapping(const CDVBridgeGLES::Layer& lay
 ### 4.8 `system/settings/settings.xml` 与 `xbmc/settings/Settings.h`
 
 #### [system/settings/settings.xml:3965](build.LibreELEC-Generic.x86_64-13.0-devel/build/kodi-22.0rc2-Piers/system/settings/settings.xml#L3965)
-在 `videoscreen.hadesdvsdrtarget` 下方增加 `videoscreen.hadesdvsdrgamut`（BT.2020 / DCI-P3 / BT.709）以及 `videoscreen.hadesdtmrecovery`：
+1. 将 `videoscreen.hadesdvsdrwhite` 上限由 500 放宽至 1500 nits（支持 800~1000 nits OLED 电视）：
+```xml
+      <setting id="videoscreen.hadesdvsdrwhite" type="integer" parent="videoscreen.hadesdvsdrtarget" label="41136" help="41137">
+        <!-- ... -->
+        <constraints>
+          <minimum>20</minimum>
+          <step>1</step>
+          <maximum>1500</maximum>
+        </constraints>
+        <!-- ... -->
+      </setting>
+```
+
+2. 在 `videoscreen.hadesdvsdrtarget` 下方增加 `videoscreen.hadesdvsdrgamut`（BT.2020 / DCI-P3 / BT.709）、`videoscreen.hadesdvsdrcurve`（BT.2390 / Spline / BT.2390 with libplacebo knee）以及 `videoscreen.hadesdtmrecovery`：
 ```xml
       <!-- Hades: the gamut of HDR mapped to SDR for a projector or custom display -->
       <setting id="videoscreen.hadesdvsdrgamut" type="integer" parent="videoscreen.hadesdvsdrtarget" label="39839" help="39840">
@@ -656,6 +679,29 @@ int CWinSystemGbmGLESContext::RenderPlainMapping(const CDVBridgeGLES::Layer& lay
             <option label="39841">0</option> <!-- BT.2020 -->
             <option label="39842">1</option> <!-- DCI-P3 (D65) -->
             <option label="39843">2</option> <!-- BT.709 -->
+          </options>
+        </constraints>
+        <control type="spinner" format="string" />
+      </setting>
+
+      <!-- Hades: the tone mapping curve for HDR mapped to SDR (Spline, BT.2390, BT.2390 libplacebo) -->
+      <setting id="videoscreen.hadesdvsdrcurve" type="integer" parent="videoscreen.hadesdvsdrtarget" label="39844" help="39845">
+        <requirement>
+          <and>
+            <condition>HAVE_GBM</condition>
+            <condition>HAS_GLES</condition>
+          </and>
+        </requirement>
+        <dependencies>
+          <dependency type="enable" setting="videoscreen.hadesdvsdrtarget" operator="ge">2</dependency>
+        </dependencies>
+        <level>3</level>
+        <default>1</default> <!-- BT.2390 default -->
+        <constraints>
+          <options>
+            <option label="39847">1</option> <!-- BT.2390 -->
+            <option label="39846">0</option> <!-- spline -->
+            <option label="41460">2</option> <!-- BT.2390 with libplacebo's knee -->
           </options>
         </constraints>
         <control type="spinner" format="string" />
@@ -687,6 +733,8 @@ int CWinSystemGbmGLESContext::RenderPlainMapping(const CDVBridgeGLES::Layer& lay
   static constexpr auto SETTING_VIDEOSCREEN_HADESDVSDRGAMMA = "videoscreen.hadesdvsdrgamma";
   //! Hades: the gamut of HDR mapped to SDR for a projector (0: BT.2020, 1: DCI-P3, 2: BT.709)
   static constexpr auto SETTING_VIDEOSCREEN_HADESDVSDRGAMUT = "videoscreen.hadesdvsdrgamut";
+  //! Hades: the curve of HDR mapped to SDR (0: spline, 1: BT.2390, 2: BT.2390 with libplacebo knee)
+  static constexpr auto SETTING_VIDEOSCREEN_HADESDVSDRCURVE = "videoscreen.hadesdvsdrcurve";
   //! Hades: optional contrast recovery strength for projector DTM (0 to 100 percent)
   static constexpr auto SETTING_VIDEOSCREEN_HADESDTMRECOVERY = "videoscreen.hadesdtmrecovery";
 ```
@@ -695,16 +743,16 @@ int CWinSystemGbmGLESContext::RenderPlainMapping(const CDVBridgeGLES::Layer& lay
 
 ## 五、 持久化补丁清单与验证指南
 
-所有修改固化至 `projects/Generic/patches/kodi/x86/kodi-9980-projector-dynamic-tone-mapping.patch`：
+所有修改固化至 `projects/Generic/patches/kodi/x86/kodi-9999-projector-dynamic-tone-mapping.patch`：
 
 | 涉及模块 | 核心工作 |
 | :--- | :--- |
-| `tools/dvbridge/` | 放行 SDR `BT2020`/`P3` 色域；接入 `dynamic_target` 着色器参数 |
+| `tools/dvbridge/` | 放行 SDR `BT2020`/`P3` 色域；放宽白点上限至 1500 nits；接入 `dynamic_target` 着色器参数 |
 | `VideoRenderers/DVBridgeGLES` | 修复 `ConversionOutputSdr` 硬编码 BT709 缺陷；透传 L1 |
 | `VideoRenderers/LinuxRendererGLES` | SDR plain 路径向 `ConversionOutputSdr` 传入 `&mapping` |
 | `VideoRenderers/HwDecRender` | `RenderPlainMapping` 透传 HDR10+ 元数据 |
 | `Windowing/GBM` | 就地注入 DTM 逻辑；解绑 DV 原生守卫；闭环切集/Seek 重置、PBO 收集与原版统计 |
-| `system/settings/` | 注册 `hadesdvsdrgamut` 与 `hadesdtmrecovery` 选项 |
+| `system/settings/` | 注册 `hadesdvsdrgamut`、`hadesdvsdrcurve` 与 `hadesdtmrecovery` 选项，放宽白点至 1500 nits |
 
 ### 验收清单：
 1. **模式 A 验证（SDR BT.2020 投影模式）**：

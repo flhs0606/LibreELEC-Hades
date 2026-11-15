@@ -1,0 +1,50 @@
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -4856,7 +4856,8 @@
+     {
+       pL1 = &l1;
+     }
+-    else if (DVMeasureReady() && layer.layout == DVBRIDGE_P010)
++    else if (DVMeasureReady() &&
++             (layer.layout == DVBRIDGE_P010 || layer.layout == DVBRIDGE_YUV420P10))
+     {
+       const double gap = layer.duration > 0 ? 24 * layer.duration : 0;
+       const bool videoChanged = layer.video && layer.video != m_dvMeasuredVideo;
+@@ -6109,20 +6110,29 @@
+   const bool dtmNeedsMeasure = m_dvConvertMapping.enabled;
+   if (!dtmNeedsMeasure && (!m_dvBridge || !m_outputHandover.HoldsOutput()))
+     return false;
+-  if (layer.layout != DVBRIDGE_P010 ||
+-      !DVMeasureReady())
++  // (Hades: the interleaved chroma of P010, or the U and V of their own textures that the picture
++  // of the processor decoded has: DVBRIDGE_YUV420P10, its 10 bits at the bottom of 16)
++  const bool planar = layer.layout == DVBRIDGE_YUV420P10 && layer.planes[2].texture;
++  if ((!planar && layer.layout != DVBRIDGE_P010) || !DVMeasureReady())
+     return false;
+   if (std::find(m_dvMeasureSubmitted.begin(), m_dvMeasureSubmitted.end(), layer.pts) !=
+       m_dvMeasureSubmitted.end())
+     return true;
+   int window[2];
+   dvbridge_measured_window(m_dvMeasured.get(), layer.width / 2, window);
+-  // (Hades: an HLG picture is measured as the PQ picture that goes out:
+-  // dvbridge_measure_submit_ex())
+-  if (!dvbridge_measure_submit_ex(m_dvMeasure.get(), layer.planes[0].texture,
+-                                  layer.planes[1].texture, layer.width, layer.height, window,
+-                                  layer.pts, m_dvMeasureEpoch,
+-                                  layer.baseTransfer == DVBRIDGE_BASE_HLG_TO_PQ))
++  // (Hades: an HLG picture is measured as the PQ picture that goes out, whichever layout its
++  // planes are: dvbridge_measure_submit_ex(), _planar())
++  const bool submitted =
++      planar ? dvbridge_measure_submit_planar(m_dvMeasure.get(), layer.planes[0].texture,
++                                              layer.planes[1].texture, layer.planes[2].texture,
++                                              layer.width, layer.height, window, layer.pts,
++                                              m_dvMeasureEpoch,
++                                              layer.baseTransfer == DVBRIDGE_BASE_HLG_TO_PQ)
++             : dvbridge_measure_submit_ex(m_dvMeasure.get(), layer.planes[0].texture,
++                                          layer.planes[1].texture, layer.width, layer.height, window,
++                                          layer.pts, m_dvMeasureEpoch,
++                                          layer.baseTransfer == DVBRIDGE_BASE_HLG_TO_PQ);
++  if (!submitted)
+     return false;
+   m_dvMeasureSubmitted.push_back(layer.pts);
+   if (m_dvMeasureSubmitted.size() > 64)

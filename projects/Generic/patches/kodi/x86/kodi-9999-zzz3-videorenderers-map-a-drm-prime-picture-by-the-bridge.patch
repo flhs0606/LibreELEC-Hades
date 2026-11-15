@@ -1,0 +1,469 @@
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
+@@ -1627,6 +1627,11 @@
+ void MeasurementFailed();
+ //! ... whether it could not (any thread; false until it was tried and failed)
+ bool MeasurementUnavailable();
++//! Hades: the serial of a picture that a renderer draws, one counter for the whole process (every
++//! renderer's pictures take theirs from it: CLinuxRendererGLES::AddVideoPicture(),
++//! CRendererDRMPRIMEGLES::AddVideoPicture()): the window system tells by it whether the picture
++//! that a frame draws is the one that is on the screen, which an earlier renderer may have drawn
++unsigned int NextPictureSerial();
+ //! Hades: whether a picture of HDR10+ sent as Dolby Vision that has no statistics of its own is
+ //! filled with a level 1 block measured from the picture (CDVHdr10PlusFill): the expert switch is
+ //! on (<video><dvhdr10plusfill>, m_videoDVHdr10PlusFill) and the measurement is not known to be
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
+@@ -981,11 +981,7 @@
+   // Hades: counted for the whole process, not for this renderer: the window system tells by it
+   // whether the picture that a frame draws is the one that is on the screen, which an earlier
+   // renderer may have drawn (CWinSystemGbmGLESContext::RenderDVBridge())
+-  static std::atomic<unsigned int> serials{0};
+-  unsigned int serial = ++serials;
+-  if (serial == 0)
+-    serial = ++serials;
+-  buf.doviSerial = serial;
++  buf.doviSerial = DVBRIDGE::NextPictureSerial();
+   // (DVD_TIME_BASE units, which are those of doviSourcePts: microseconds)
+   buf.doviDuration = picture.iDuration > 0 ? picture.iDuration : 0.0;
+   buf.doviMeasured = picture.doviMeasured;
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.h
+@@ -12,9 +12,19 @@
+ #include "cores/VideoPlayer/VideoRenderers/BaseRenderer.h"
+ 
+ #include <array>
++#include <atomic>
+ #include <memory>
+ #include <optional>
+ 
++#ifdef HAVE_DVBRIDGE
++#include "cores/VideoPlayer/DVDCodecs/Video/DVMetadataBuffer.h"
++#include "cores/VideoPlayer/Interface/TimingConstants.h"
++
++#include <libavutil/hdr_dynamic_metadata.h>
++#include <libavutil/mastering_display_metadata.h>
++#include <libavutil/pixfmt.h>
++#endif
++
+ namespace KODI
+ {
+ namespace UTILS
+@@ -76,10 +86,37 @@
+   void DrawBlackBars();
+   void Render(unsigned int flags, int index);
+ 
++#ifdef HAVE_DVBRIDGE
++  //! Hades: an HDR10 or HLG picture mapped to SDR (or to the peak of the display, where it is
++  //! adapted to it) by the bridge, as CRendererVAAPIGLES::RenderPlainMapping() maps a VAAPI
++  //! surface: its two planes imported per plane, its colour and its metadata. -1 where it could
++  //! not be drawn (Kodi's own way then).
++  int RenderPlainMapping(int index);
++  //! Hades: whether the bridge maps the pictures of this video (DVBRIDGE::WantsPlainMapping())
++  //! and this renderer can give it their planes (CanPlainMap())
++  bool WantsPlainMapping(const VideoPicture& picture) const;
++  //! Hades: ... or adapts them to the display (DVBRIDGE::WantsHdr10Adapt())
++  bool WantsHdr10Adapt(const VideoPicture& picture) const;
++  bool CanPlainMap(const VideoPicture& picture) const;
++  bool LibplaceboKneeWanted() const;
++#endif
++
+   bool m_configured = false;
+   bool m_passthroughHDR{false};
+   bool m_hdrFboActive{false};
+ 
++#ifdef HAVE_DVBRIDGE
++  //! Hades: the pictures are mapped by the bridge (RenderPlainMapping()); Kodi's own way where it
++  //! is off or a picture could not be mapped. An atomic: ConfigChanged() asks from the player
++  //! thread.
++  std::atomic<bool> m_plainMap{false};
++  bool m_plainAdapt = false; //!< m_plainMap is that (an HDR10 picture adapted to the display)
++  unsigned int m_plainFailures = 0; //!< pictures in a row that the bridge could not map
++  unsigned int m_plainFailedSerial = 0; //!< the last one counted (one drawn again counts once)
++  bool m_dvLibplaceboKnee = false; //!< the knee of the curve when the renderer was configured
++  uint32_t m_sourceFourcc = 0; //!< the DRM fourcc of the pictures (the layout the bridge imports)
++#endif
++
+   // Limited-range path: per-plane EGL import + standard YUV2RGB shader.
+   // Set at Configure time when the user has limited-range output enabled
+   // AND the buffer's source fourcc can be imported by CDRMPRIMETextureYUV
+@@ -92,6 +129,22 @@
+     CVideoBuffer* videoBuffer = nullptr;
+     //! Hades: the HDR10+ InfoFrame of the picture (VideoPicture::hdr10PlusVsif)
+     std::optional<std::array<uint8_t, 27>> hdr10PlusVsif;
++#ifdef HAVE_DVBRIDGE
++    //! Hades: what the bridge takes of the picture, as the buffer of CLinuxRendererGLES keeps it
++    double doviPts = DVD_NOPTS_VALUE;
++    double doviDuration = 0.0; //!< of a frame of the stream, in the units of doviPts
++    unsigned int doviVideo = 0;
++    unsigned int doviSerial = 0; //!< one counter for every renderer (DVBRIDGE::NextPictureSerial())
++    AVChromaLocation doviChroma = AVCHROMA_LOC_UNSPECIFIED;
++    int srcColTransfer = AVCOL_TRC_UNSPECIFIED;
++    bool srcFullRange = false;
++    bool hasDisplayMetadata = false;
++    AVMasteringDisplayMetadata displayMetadata{};
++    bool hasLightMetadata = false;
++    AVContentLightMetadata lightMetadata{};
++    std::shared_ptr<const AVDynamicHDRPlus> hdr10PlusDynamic;
++    CDVMetadataBuffer doviMetadata;
++#endif
+     std::unique_ptr<KODI::UTILS::EGL::CEGLFence> fence;
+   } m_buffers[NUM_BUFFERS];
+ 
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.cpp
+@@ -28,6 +28,13 @@
+ 
+ #include <memory>
+ 
++#ifdef HAVE_DVBRIDGE
++#include "cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h"
++#include "cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h"
++#include "dvbridge_hdr10plus.h"
++#include "windowing/gbm/WinSystemGbmGLESContext.h"
++#endif
++
+ using namespace KODI::UTILS::EGL;
+ 
+ CRendererDRMPRIMEGLES::~CRendererDRMPRIMEGLES()
+@@ -111,9 +118,54 @@
+   if (!winSystem)
+     return false;
+ 
++  uint32_t sourceFourcc = 0;
++  auto* drmBuf = dynamic_cast<CVideoBufferDRMPRIME*>(picture.videoBuffer);
++  if (drmBuf && drmBuf->AcquireDescriptor())
++  {
++    auto* desc = drmBuf->GetDescriptor();
++    if (desc && desc->nb_layers == 1)
++      sourceFourcc = desc->layers[0].format;
++    drmBuf->ReleaseDescriptor();
++  }
++
++#ifdef HAVE_DVBRIDGE
++  m_sourceFourcc = sourceFourcc;
++  // Hades: an HDR10 or HLG picture that the bridge maps to SDR, or to the peak of the display
++  // where it is adapted to it (m_plainMap), as CLinuxRendererGLES::Configure() decides it: the
++  // output is set up for the picture that is sent (an SDR picture of BT.709, or HDR10 told the
++  // peak of the display), and the pictures are drawn by the bridge (RenderPlainMapping()); Kodi's
++  // own way where it is off or a picture could not be mapped
++  auto* dvWindow =
++      dynamic_cast<KODI::WINDOWING::GBM::CWinSystemGbmGLESContext*>(CServiceBroker::GetWinSystem());
++  bool plain = dvWindow && WantsPlainMapping(picture);
++  VideoPicture told;
++  if (plain)
++  {
++    const dvbridge_hdr10_mapping mapping =
++        dvWindow->TakeDVConversionMapping(picture, true, true, LibplaceboKneeWanted());
++    CDVBridgeGLES::ConversionOutputSdr(picture, told, &mapping);
++    dvWindow->DVConversionAhead(false);
++  }
++  // Hades: ... or an HDR10 or HDR10+ picture adapted to the display (videoscreen.hadeshdr10adapt)
++  bool adapt = dvWindow && !plain && WantsHdr10Adapt(picture);
++  if (adapt)
++  {
++    const dvbridge_hdr10_mapping mapping = dvWindow->TakeHdr10AdaptMapping(picture);
++    adapt = CDVBridgeGLES::ConversionOutputAdapted(picture, told, mapping);
++    if (adapt)
++      dvWindow->DVConversionAhead(false);
++    if (!adapt)
++      DVBRIDGE::PlainMappingFailed("no mapping to the display could be made of it");
++  }
++  plain = plain || adapt;
++  const VideoPicture& output = plain ? told : picture;
++#else
++  const VideoPicture& output = picture;
++#endif
++
+   m_configured = true;
+ 
+-  if (!winSystem->SetVideoOutput(&picture))
++  if (!winSystem->SetVideoOutput(&output))
+     CLog::Log(LOGWARNING, "RendererDRMPRIMEGLES::Configure: SetVideoOutput failed");
+ 
+   auto winSystemEGL = dynamic_cast<KODI::WINDOWING::LINUX::CWinSystemEGL*>(winSystem);
+@@ -140,16 +192,6 @@
+   //    here when the source fourcc is one we can per-plane import.
+   m_yuvShader.reset();
+ 
+-  uint32_t sourceFourcc = 0;
+-  auto* drmBuf = dynamic_cast<CVideoBufferDRMPRIME*>(picture.videoBuffer);
+-  if (drmBuf && drmBuf->AcquireDescriptor())
+-  {
+-    auto* desc = drmBuf->GetDescriptor();
+-    if (desc && desc->nb_layers == 1)
+-      sourceFourcc = desc->layers[0].format;
+-    drmBuf->ReleaseDescriptor();
+-  }
+-
+   if (CDRMPRIMETextureYUV::SupportsFormat(sourceFourcc))
+   {
+     using namespace Shaders::GLES;
+@@ -238,12 +280,43 @@
+         CSettings::SETTING_VIDEOSCREEN_LIMITEDRANGE, false);
+   }
+ 
+-  winSystem->SetColorimetry(&picture);
+-  m_passthroughHDR = winSystem->SetHDR(&picture);
++  winSystem->SetColorimetry(&output);
++  m_passthroughHDR = winSystem->SetHDR(&output);
++#ifdef HAVE_DVBRIDGE
++  // Hades: fail closed, as CLinuxRendererGLES::Configure(): a picture mapped to SDR does not go
++  // out with HDR signalling, nor one adapted to the display without it. The video plays as Kodi
++  // plays it, through the output of its own picture.
++  if (plain && m_passthroughHDR != adapt)
++  {
++    DVBRIDGE::PlainMappingFailed(adapt ? "the output did not take HDR10 for a picture adapted to "
++                                        "the display"
++                                       : "the output took HDR signalling for a picture mapped to SDR");
++    adapt = false;
++    plain = false;
++    if (!winSystem->SetVideoOutput(&picture))
++      CLog::Log(LOGWARNING, "RendererDRMPRIMEGLES::Configure: SetVideoOutput failed");
++    winSystem->SetColorimetry(&picture);
++    m_passthroughHDR = winSystem->SetHDR(&picture);
++  }
++  // Hades: the player information tells what the video says of itself, which SetHDR() took from
++  // the picture made for the output
++  if (plain)
++    dvWindow->NoteSourceColour(&picture);
++  m_plainMap = plain;
++  m_plainAdapt = plain && adapt;
++  m_plainFailures = 0;
++  m_plainFailedSerial = 0;
++  m_dvLibplaceboKnee = LibplaceboKneeWanted();
++  // (the transfer of what is sent: that of the told picture, or of the video's own picture where
++  // the fail-closed above set the output up for it again)
++  const int transfer = (plain ? output : picture).color_transfer;
++#else
++  const int transfer = picture.color_transfer;
++#endif
+   CLog::Log(LOGDEBUG, "RendererDRMPRIMEGLES::Configure: HDR passthrough: {}",
+             m_passthroughHDR ? "on" : "off");
+ 
+-  m_hdrFboActive = m_passthroughHDR && winSystem->SetGuiCompositing(picture.color_transfer);
++  m_hdrFboActive = m_passthroughHDR && winSystem->SetGuiCompositing(transfer);
+   if (m_passthroughHDR && !m_hdrFboActive)
+     CLog::Log(LOGWARNING, "RendererDRMPRIMEGLES::Configure: HDR passthrough active but GUI "
+                           "compositing not supported by windowing system");
+@@ -288,6 +361,25 @@
+   buf.videoBuffer = picture.videoBuffer;
+   buf.videoBuffer->Acquire();
+   buf.hdr10PlusVsif = picture.hdr10PlusVsif;
++#ifdef HAVE_DVBRIDGE
++  // Hades: what the bridge takes of the picture, as CLinuxRendererGLES::AddVideoPicture() keeps
++  // it of its pictures: its time, the video it is of, its metadata and its colour
++  buf.doviPts = picture.doviSourcePts == AV_NOPTS_VALUE ? DVD_NOPTS_VALUE
++                                                        : static_cast<double>(picture.doviSourcePts);
++  // (DVD_TIME_BASE units, which are those of doviSourcePts: microseconds)
++  buf.doviDuration = picture.iDuration > 0 ? picture.iDuration : 0.0;
++  buf.doviVideo = picture.doviVideo;
++  buf.doviSerial = DVBRIDGE::NextPictureSerial();
++  buf.doviChroma = picture.chroma_position;
++  buf.srcColTransfer = picture.color_transfer;
++  buf.srcFullRange = picture.color_range == 1;
++  buf.hasDisplayMetadata = picture.hasDisplayMetadata;
++  buf.displayMetadata = picture.displayMetadata;
++  buf.hasLightMetadata = picture.hasLightMetadata;
++  buf.lightMetadata = picture.lightMetadata;
++  buf.hdr10PlusDynamic = picture.hdr10PlusDynamic;
++  buf.doviMetadata = picture.doviMetadata;
++#endif
+ 
+   // CDVDVideoCodecDRMPRIME fills its buffers at decode; CVideoBufferDMA arrives unfilled
+   auto* drmBuffer = dynamic_cast<CVideoBufferDRMPRIME*>(picture.videoBuffer);
+@@ -449,6 +541,20 @@
+   if (picture.videoBuffer->GetFormat() != m_format)
+     return true;
+ 
++#ifdef HAVE_DVBRIDGE
++  // Hades: when an HDR picture that is not Dolby Vision starts or stops being mapped by the
++  // bridge: the method of the video, the output, or a failure (as
++  // CLinuxRendererGLES::ConfigChanged()); ... and when the knee of the BT.2390 curve of a mapping
++  // to SDR is no longer the one the method of the video asks for
++  if (m_configured)
++  {
++    const bool wanted = WantsPlainMapping(picture) || WantsHdr10Adapt(picture);
++    if (wanted != m_plainMap.load() ||
++        (m_plainMap && !m_plainAdapt && LibplaceboKneeWanted() != m_dvLibplaceboKnee))
++      return true;
++  }
++#endif
++
+   return false;
+ }
+ 
+@@ -460,6 +566,37 @@
+   if (!buffer || !buffer->IsValid())
+     return;
+ 
++#ifdef HAVE_DVBRIDGE
++  // Hades: mapped to SDR (or to the peak of the display) by the bridge. A picture that could not
++  // be mapped falls through to Kodi's own way below (m_plainMap stays for the next picture: after
++  // two seconds of film of those, this video plays as Kodi plays it, ConfigChanged() then has the
++  // renderer configured for that)
++  if (m_plainMap)
++  {
++    constexpr unsigned int FAILURES = 48;
++    const int drawn = RenderPlainMapping(index);
++    const unsigned int serial = buf.doviSerial;
++    if (drawn == 1)
++    {
++      m_plainFailures = 0;
++      m_plainFailedSerial = 0;
++    }
++    else if (serial != m_plainFailedSerial)
++    {
++      m_plainFailedSerial = serial;
++      if (++m_plainFailures == FAILURES)
++        DVBRIDGE::PlainMappingFailed(DVBRIDGE::RendererFailureReason(
++            false, "its pictures could not be mapped"));
++    }
++    if (drawn >= 0)
++    {
++      buf.fence->DestroyFence();
++      buf.fence->CreateFence();
++      return;
++    }
++  }
++#endif
++
+   CRenderSystemGLES* renderSystem =
+       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
+   if (!renderSystem)
+@@ -660,6 +797,117 @@
+   glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+ }
+ 
++#ifdef HAVE_DVBRIDGE
++bool CRendererDRMPRIMEGLES::LibplaceboKneeWanted() const
++{
++  return m_videoSettings.m_ToneMapMethod == VS_TONEMAPMETHOD_BT2390_LIBPLACEBO;
++}
++
++bool CRendererDRMPRIMEGLES::CanPlainMap(const VideoPicture& picture) const
++{
++  // The two planes of the dma-buf imported per plane, as the limited-range path takes them: the
++  // layout the bridge imports (dvbridge_gl_frame_import()) and a size it takes; the place and the
++  // size on the screen are free (the bridge scales to where Kodi puts the picture)
++  if (m_renderOrientation != 0 || picture.iWidth < 1 || picture.iHeight < 1)
++    return false;
++  switch (m_sourceFourcc)
++  {
++    case DRM_FORMAT_NV12:
++    case DRM_FORMAT_P010:
++    case DRM_FORMAT_P012:
++    case DRM_FORMAT_P016:
++      break;
++    default:
++      return false;
++  }
++  return DVBRIDGE::SourceFitsRaster(static_cast<int>(picture.iWidth),
++                                    static_cast<int>(picture.iHeight));
++}
++
++bool CRendererDRMPRIMEGLES::WantsPlainMapping(const VideoPicture& picture) const
++{
++  // (not a picture that another renderer reconstructs: the DRM PRIME renderer has no
++  // reconstruction; such a video plays as Kodi plays it, as before)
++  return DVBRIDGE::WantsPlainMapping(&picture, m_videoSettings.m_ToneMapMethod) &&
++         !DVBRIDGE::WantsConversion(&picture, m_videoSettings.m_ToneMapMethod) &&
++         CanPlainMap(picture);
++}
++
++bool CRendererDRMPRIMEGLES::WantsHdr10Adapt(const VideoPicture& picture) const
++{
++  return DVBRIDGE::WantsHdr10Adapt(&picture) &&
++         !DVBRIDGE::WantsConversion(&picture, m_videoSettings.m_ToneMapMethod) &&
++         !WantsPlainMapping(picture) && CanPlainMap(picture);
++}
++
++int CRendererDRMPRIMEGLES::RenderPlainMapping(int index)
++{
++  // Hades: its two planes imported per plane (the limited-range way), its colour (transfer, range
++  // and the HDR10 and HDR10+ metadata of the picture) and the metadata of the stream where it has
++  // them: what CRendererVAAPIGLES::RenderPlainMapping() gives the window of a VAAPI surface
++  if (index < 0 || index >= NUM_BUFFERS || m_renderOrientation != 0)
++    return -1;
++  auto* window =
++      dynamic_cast<KODI::WINDOWING::GBM::CWinSystemGbmGLESContext*>(CServiceBroker::GetWinSystem());
++  if (!window)
++    return -1;
++  BUFFER& buf = m_buffers[index];
++  auto* buffer = dynamic_cast<CVideoBufferDRMPRIME*>(buf.videoBuffer);
++  if (!buffer || !buffer->IsValid())
++    return -1;
++  CDRMPRIMETextureYUV* yuv = m_texturePool.GetYUV(buffer);
++  if (!yuv)
++    return -1;
++  CDVBridgeGLES::Layer layer{};
++  switch (yuv->GetSourceFormat())
++  {
++    case DRM_FORMAT_NV12:
++      layer.layout = DVBRIDGE_NV12;
++      break;
++    case DRM_FORMAT_P010:
++      layer.layout = DVBRIDGE_P010;
++      break;
++    case DRM_FORMAT_P012:
++      layer.layout = DVBRIDGE_P012;
++      break;
++    case DRM_FORMAT_P016:
++      layer.layout = DVBRIDGE_P016;
++      break;
++    default:
++      return -1;
++  }
++  const CSizeInt texSize = yuv->GetTextureSize();
++  layer.width = m_sourceWidth;
++  layer.height = m_sourceHeight;
++  layer.chroma = buf.doviChroma;
++  layer.pts = (buf.doviPts != DVD_NOPTS_VALUE) ? buf.doviPts : 0.0;
++  layer.duration = buf.doviDuration;
++  layer.video = buf.doviVideo;
++  layer.planes[0] = {yuv->GetTexture(0), texSize.Width(), texSize.Height()};
++  layer.planes[1] = {yuv->GetTexture(1), (texSize.Width() + 1) / 2, (texSize.Height() + 1) / 2};
++  // (the colour of the picture: its transfer, its range and its HDR10 metadata, 0 where not known)
++  dvbridge_plain plain{};
++  plain.hlg = buf.srcColTransfer == AVCOL_TRC_ARIB_STD_B67;
++  plain.full_range = buf.srcFullRange;
++  if (buf.hasDisplayMetadata && buf.displayMetadata.has_luminance &&
++      buf.displayMetadata.max_luminance.den && buf.displayMetadata.min_luminance.den)
++  {
++    plain.max_luma = static_cast<float>(av_q2d(buf.displayMetadata.max_luminance));
++    plain.min_luma = static_cast<float>(av_q2d(buf.displayMetadata.min_luminance));
++  }
++  if (buf.hasLightMetadata)
++  {
++    plain.max_cll = static_cast<float>(buf.lightMetadata.MaxCLL);
++    plain.max_fall = static_cast<float>(buf.lightMetadata.MaxFALL);
++  }
++  // ... and its HDR10+ metadata, which guide the mapping where it has them (a PQ picture only)
++  if (buf.hdr10PlusDynamic && buf.srcColTransfer == AVCOL_TRC_SMPTE2084)
++    dvbridge_hdr10plus_plain(buf.hdr10PlusDynamic.get(), &plain.hdr10plus, nullptr, nullptr);
++  return window->RenderPlainMapping(layer, plain, m_sourceRect, m_destRect, buf.doviSerial,
++                                    buf.doviMetadata);
++}
++#endif
++
+ bool CRendererDRMPRIMEGLES::Supports(ERENDERFEATURE feature) const
+ {
+   switch (feature)
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -3420,6 +3420,15 @@
+   return window && picture && window->Hdr10AdaptWanted(*picture);
+ }
+ 
++unsigned int DVBRIDGE::NextPictureSerial()
++{
++  static std::atomic<unsigned int> serials{0};
++  unsigned int serial = ++serials;
++  if (serial == 0)
++    serial = ++serials;
++  return serial;
++}
++
+ bool DVBRIDGE::HdrAsSdrOfStream(bool dolbyVision, bool pq, bool hlg)
+ {
+   const auto* window = dynamic_cast<CWinSystemGbmGLESContext*>(CServiceBroker::GetWinSystem());

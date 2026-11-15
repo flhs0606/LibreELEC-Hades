@@ -1,0 +1,136 @@
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
+@@ -672,6 +673,7 @@
+   uint64_t m_dvMeasureEpoch = 0;
+   std::deque<double> m_dvMeasureSubmitted;
+   double m_dvMeasuredPts = DVD_NOPTS_VALUE;
++  unsigned int m_dvMeasuredVideo = 0;
+   unsigned int m_dvMeasureFrames = 0, m_dvMeasureLate = 0, m_dvMeasureCuts = 0;
+   bool DVMeasureReady();
+   void DVMeasuredMetadata(const CDVBridgeGLES::Layer& layer, CDVMetadataBuffer& metadata);
+
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -4729,7 +4736,11 @@
+   if (!ConversionBridge(true))
+     return -1;
+   // mapped to the display as the output was told when the renderer was configured
+-  m_dvConvertBridge->SetConversionMapping(m_dvConvertMapping);
++  const bool overlayFree = m_guiWillRender && GetGUIElementCount() == 0 && !m_dvOverlays;
++  dvbridge_hdr10_mapping mapping = m_dvConvertMapping;
++  if (!overlayFree)
++    mapping.contrast_recovery = 0.0f;
++  m_dvConvertBridge->SetConversionMapping(mapping);
+   // Hades: kept in the form that the copy into the window needs (dvbridge_render_hdr10_store())
+   m_dvConvertBridge->SetConversionTarget(0, UseLimitedColor());
+   const bool reconstructed = m_dvConvertBridge->PrepareConversion(
+
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -4826,8 +4838,67 @@
+     return -1;
+   if (!ConversionBridge(false))
+     return -1;
+-  m_dvConvertBridge->SetConversionMapping(m_dvConvertMapping);
++
++  const bool overlayFree = m_guiWillRender && GetGUIElementCount() == 0 && !m_dvOverlays;
++  dvbridge_hdr10_mapping mapping = m_dvConvertMapping;
++  if (!overlayFree)
++    mapping.contrast_recovery = 0.0f;
++  m_dvConvertBridge->SetConversionMapping(mapping);
+   m_dvConvertBridge->SetConversionTarget(0, UseLimitedColor());
++
++  dvbridge_level1 l1{};
++  const dvbridge_level1* pL1 = nullptr;
++
++  if (mapping.enabled && !plain.hlg)
++  {
++    if (metadata.Data() && metadata.Size() > 0 &&
++        dvbridge_level1_effective(metadata.Data(), metadata.Size(), &l1))
++    {
++      pL1 = &l1;
++    }
++    else if (DVMeasureReady() && layer.layout == DVBRIDGE_P010)
++    {
++      const double gap = layer.duration > 0 ? 24 * layer.duration : 0;
++      const bool videoChanged = layer.video && layer.video != m_dvMeasuredVideo;
++      const bool seekJump = (m_dvMeasuredPts != DVD_NOPTS_VALUE &&
++                             (layer.pts < m_dvMeasuredPts || (gap > 0 && layer.pts > m_dvMeasuredPts + gap)));
++      if (videoChanged || seekJump)
++      {
++        m_dvMeasuredVideo = layer.video;
++        ++m_dvMeasureEpoch;
++        m_dvMeasureSubmitted.clear();
++        dvbridge_measure_reset(m_dvMeasure.get());
++        dvbridge_measured_reset(m_dvMeasured.get(), !videoChanged);
++      }
++      m_dvMeasuredPts = layer.pts;
++
++      DVMeasurePicture(layer);
++
++      dvbridge_measure_collect(
++          m_dvMeasure.get(),
++          [](const dvbridge_measured_raw* raw, uint64_t tag, void* context)
++          {
++            auto* self = static_cast<CWinSystemGbmGLESContext*>(context);
++            dvbridge_measured_picture picture;
++            if (tag == self->m_dvMeasureEpoch &&
++                dvbridge_measured_reduce(self->m_dvMeasured.get(), raw, &picture))
++              dvbridge_measured_add(self->m_dvMeasured.get(), &picture);
++          },
++          this);
++
++      dvbridge_measured_l1 l1Data{};
++      dvbridge_measured_take(m_dvMeasured.get(), layer.pts, &l1Data);
++      if (l1Data.measured)
++      {
++        l1.min = l1Data.min_pq / 4095.0f;
++        l1.max = l1Data.max_pq / 4095.0f;
++        l1.avg = l1Data.avg_pq / 4095.0f;
++        l1.applied = true;
++        pL1 = &l1;
++      }
++    }
++  }
++
+   // Hades: adapted to the display (an HDR10 target): what it costs, in the line of every 10 s
+   const bool adapted = m_dvConvertMapping.enabled &&
+                        m_dvConvertMapping.target == DVBRIDGE_HDR10_TARGET_HDR10;
+
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -4844,7 +4915,7 @@
+     Hdr10AdaptTimerMark(true);
+   }
+   const bool mapped =
+-      m_dvConvertBridge->PreparePlain(layer, plain, view, m_nWidth, m_nHeight, serial);
++      m_dvConvertBridge->PreparePlain(layer, plain, view, m_nWidth, m_nHeight, serial, pL1);
+   // ... or the picture before it, mapped whole, where this one could not be (none: Kodi draws it)
+   const dvbridge_gl_rect area{place.dstX, place.dstY, place.dstWidth, place.dstHeight};
+   const bool copied =
+
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -5875,6 +5972,7 @@
+     ++m_dvMeasureEpoch;
+     m_dvMeasureSubmitted.clear();
+     m_dvMeasuredPts = DVD_NOPTS_VALUE;
++    m_dvMeasuredVideo = 0;
+     dvbridge_measure_reset(m_dvMeasure.get());
+     dvbridge_measured_reset(m_dvMeasured.get(), false);
+   }
+
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -6008,7 +6106,10 @@
+ 
+ bool CWinSystemGbmGLESContext::DVMeasurePicture(const CDVBridgeGLES::Layer& layer)
+ {
+-  if (!m_dvBridge || !m_outputHandover.HoldsOutput() || layer.layout != DVBRIDGE_P010 ||
++  const bool dtmNeedsMeasure = m_dvConvertMapping.enabled;
++  if (!dtmNeedsMeasure && (!m_dvBridge || !m_outputHandover.HoldsOutput()))
++    return false;
++  if (layer.layout != DVBRIDGE_P010 ||
+       !DVMeasureReady())
+     return false;
+   if (std::find(m_dvMeasureSubmitted.begin(), m_dvMeasureSubmitted.end(), layer.pts) !=

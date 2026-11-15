@@ -1,0 +1,119 @@
+--- a/xbmc/settings/Settings.cpp
++++ b/xbmc/settings/Settings.cpp
+--- 
++++ 
+@@ -263,20 +263,29 @@
+   {
+     // (the two higher presets turn the FEL reconstruction and the finer gamut table on, and the
+     // composition stays with ETSI GS CCM 001; the highest locks the fidelity, so that no picture
+-    // is drawn with less than the film has)
++    // is drawn with less than the film has. The standard preset takes the composition of
++    // libplacebo instead and locks the fidelity at level 1: measured on the slowest card this
++    // build is made for, that is what keeps a film with subtitles on the screen at every
++    // refresh)
+     const bool high = preset >= 1;
+     m_writing = true;
+     settings.SetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVASHDR10FEL, high);
+-    settings.SetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER, 0);
++    settings.SetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER, high ? 0 : 1);
+     settings.SetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE, high);
+-    settings.SetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE, preset == 2 ? 1 : 0);
++    settings.SetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE,
++                    preset == 2 ? 1 : preset == 1 ? 0 : 2);
+     m_writing = false;
+-    CLog::Log(LOGINFO, "quality preset: {} (FEL reconstruction {}, gamut table {}, fidelity {})",
++    CLog::Log(LOGINFO,
++              "quality preset: {} (FEL reconstruction {}, gamut table {}, {} composition, "
++              "fidelity {})",
+               preset == 2   ? "ultra"
+               : preset == 1 ? "high"
+                             : "standard",
+               high ? "on" : "off", high ? "fine" : "coarse",
+-              preset == 2 ? "locked" : "automatic");
++              high ? "ETSI GS CCM 001" : "libplacebo",
++              preset == 2   ? "locked"
++              : preset == 1 ? "automatic"
++                            : "locked at level 1");
+   }
+ 
+   bool m_writing = false;
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+--- 
++++ 
+@@ -4051,6 +4051,8 @@
+         <default>true</default>
+         <control type="toggle" />
+       </setting>
++      <!-- Hades: taken over by videoscreen.hadesqualitypreset; kept, hidden, as the preset
++           writes it through, and the engine still reads it -->
+       <setting id="videoscreen.hadesdvashdr10fel" type="boolean" parent="videoscreen.hadesdvashdr10" label="39991" help="39992">
+         <requirement>
+           <and>
+@@ -4068,6 +4070,7 @@
+             </and>
+           </dependency>
+         </dependencies>
++        <visible>false</visible>
+         <level>3</level>
+         <default>false</default>
+         <control type="toggle" />
+@@ -4740,6 +4743,8 @@
+           </constraints>
+           <control type="spinner" format="string" />
+         </setting>
++        <!-- Hades: taken over by videoscreen.hadesqualitypreset; kept, hidden, as the preset
++             writes it through, and the engine still reads it -->
+         <setting id="videoscreen.hadesdvstepmode" type="integer" label="39962" help="39963">
+           <requirement>
+             <and>
+@@ -4747,8 +4752,9 @@
+               <condition>HAS_GLES</condition>
+             </and>
+           </requirement>
+-          <level>3</level>
+-          <default>0</default>
++          <visible>false</visible>
++          <level>3</level>
++          <default>2</default>
+           <constraints>
+             <options>
+               <option label="39875">0</option> <!-- automatic: where the GPU cannot keep up -->
+@@ -4760,6 +4766,8 @@
+           </constraints>
+           <control type="spinner" format="string" />
+         </setting>
++        <!-- Hades: taken over by videoscreen.hadesqualitypreset; kept, hidden, as the preset
++             writes it through, and the engine still reads it -->
+         <setting id="videoscreen.hadesdvcomposer" type="integer" label="39973" help="39974">
+           <requirement>
+             <and>
+@@ -4767,8 +4775,9 @@
+               <condition>HAS_GLES</condition>
+             </and>
+           </requirement>
+-          <level>3</level>
+-          <default>0</default>
++          <visible>false</visible>
++          <level>3</level>
++          <default>1</default>
+           <constraints>
+             <options>
+               <option label="39975">0</option> <!-- as ETSI GS CCM 001 composes -->
+@@ -4809,6 +4818,8 @@
+         <!-- Hades: the table of the gamut mapping of a picture mapped to a display or to SDR
+              (CDVBridgeGLES::UseGamutTable()), for experts; read when native output starts and when
+              a bridge for output as HDR10 or SDR is made -->
++        <!-- Hades: taken over by videoscreen.hadesqualitypreset; kept, hidden, as the preset
++             writes it through, and the engine still reads it -->
+         <setting id="videoscreen.hadesdvgamutfine" type="boolean" label="39230" help="39231">
+           <requirement>
+             <and>
+@@ -4816,6 +4827,7 @@
+               <condition>HAS_GLES</condition>
+             </and>
+           </requirement>
++          <visible>false</visible>
+           <level>3</level>
+           <default>false</default>
+           <control type="toggle" />

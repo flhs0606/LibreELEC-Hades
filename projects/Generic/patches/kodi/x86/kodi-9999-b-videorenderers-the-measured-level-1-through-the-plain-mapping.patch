@@ -1,0 +1,284 @@
+--- a/tools/dvbridge/dvbridge_render.h
++++ b/tools/dvbridge/dvbridge_render.h
+@@ -174,7 +174,8 @@
+ };
+ bool dvbridge_render_plain(struct dvbridge_renderer *renderer, const struct pl_frame *source,
+                           const struct dvbridge_plain *plain, struct dvbridge_view view,
+-                          int width, int height);
++                          int width, int height,
++                          const struct dvbridge_level1 *measured_l1);
+ /* The texture of the last dvbridge_render_hdr10() when it succeeded, or NULL. It goes to the
+  * output with dvbridge_gl_copy(). */
+ pl_tex dvbridge_render_hdr10_texture(const struct dvbridge_renderer *renderer);
+
+--- a/tools/dvbridge/dvbridge_render.c
++++ b/tools/dvbridge/dvbridge_render.c
+@@ -2233,10 +2233,20 @@
+     else
+         dvbridge_hdr10_gamut_xy(m->gamut, xy);
+     const bool sdr = m->target == DVBRIDGE_HDR10_TARGET_SDR;
++    enum pl_color_primaries out_prim = PL_COLOR_PRIM_BT_2020;
++    if (sdr) {
++        if (m->gamut == DVBRIDGE_HDR10_GAMUT_BT2020)
++            out_prim = PL_COLOR_PRIM_BT_2020;
++        else if (m->gamut == DVBRIDGE_HDR10_GAMUT_P3_D65)
++            out_prim = PL_COLOR_PRIM_DISPLAY_P3;
++        else
++            out_prim = PL_COLOR_PRIM_BT_709;
++    }
+     *target = (struct pl_color_space){
+-        .primaries = sdr ? PL_COLOR_PRIM_BT_709 : PL_COLOR_PRIM_BT_2020,
++        .primaries = out_prim,
+         .transfer = sdr ? dvbridge_sdr_transfer(m) : PL_COLOR_TRC_PQ,
+-        .hdr = {.min_luma = PL_COLOR_HDR_BLACK, .max_luma = m->peak,
++        .hdr = {.min_luma = (m->black > 0.0f) ? m->black : PL_COLOR_HDR_BLACK,
++                .max_luma = m->peak,
+                 .prim = {.red = {xy[0], xy[1]}, .green = {xy[2], xy[3]}, .blue = {xy[4], xy[5]},
+                          .white = {xy[6], xy[7]}}},
+     };
+@@ -2263,6 +2273,8 @@
+     params->metadata = PL_HDR_METADATA_ANY;
+     params->inverse_tone_mapping = false;
+     params->gamut_expansion = false;
++    params->dynamic_target = m->dynamic_target;
++    params->contrast_recovery = m->contrast_recovery;
+     /* Hades: the table of the gamut mapping at twice libplacebo's resolution in each dimension
+      * (96x64x512 entries of intensity, chroma and hue instead of 48x32x256). The GPU reads it with
+      * linear interpolation, and where the mapping folds a colour onto the edge of the target's gamut
+@@ -2793,7 +2805,8 @@
+ static bool render_hdr10(struct dvbridge_renderer *r, const struct pl_frame *source,
+                          const void *metadata, size_t bytes, double pts, double el_pts,
+                          struct dvbridge_view view, int width, int height,
+-                         const struct dvbridge_plain *plain)
++                         const struct dvbridge_plain *plain,
++                         const struct dvbridge_level1 *measured_l1)
+ {
+     /* Hades: (why nothing is drawn, for the log: dvbridge_render_refused(), dvbridge_render_not_drawn()) */
+     r->refused = NULL;
+@@ -2930,8 +2943,10 @@
+     struct trim_pass trim = {0};
+     if (r->hdr10_mapping.enabled) {
+         struct dvbridge_level1 level1;
++        const struct dvbridge_level1 *l1 =
++            measured_l1 ? measured_l1 : level1_noted(r, metadata, bytes, &level1);
+         map_to_display(r, &r->hdr10_mapping, &image.color, &target.color, &mapping,
+-                       level1_noted(r, metadata, bytes, &level1));
++                       l1);
+         /* Hades: a plain PQ picture with HDR10+ metadata: guided by them (dvbridge_hdr10plus_map.h) */
+         if (plain && !plain->hlg)
+             map_hdr10plus(r, &r->hdr10_mapping, &image.color, &mapping, &plain->hdr10plus, false);
+@@ -3041,17 +3056,17 @@
+     const bool fine = fine_gamut_table(r, false);
+     r->trim_tried = false;
+     r->hdr10_ready = render_hdr10(r, source, metadata, bytes, pts, el_pts, view, width, height,
+-                                  NULL);
++                                  NULL, NULL);
+     /* Hades: with the standard gamut table where the finer one could not be made */
+     if (gamut_table_retry(r, fine, r->hdr10_ready)) {
+         r->hdr10_ready = render_hdr10(r, source, metadata, bytes, pts, el_pts, view, width, height,
+-                                      NULL);
++                                      NULL, NULL);
+         gamut_table_kept(r, r->hdr10_ready);
+     }
+     /* Hades: without the trim pass where it could not be drawn */
+     if (trim_retry(r, r->hdr10_ready)) {
+         r->hdr10_ready = render_hdr10(r, source, metadata, bytes, pts, el_pts, view, width, height,
+-                                      NULL);
++                                      NULL, NULL);
+         trim_kept(r, r->hdr10_ready);
+     }
+     restore_gl_state(&state);
+@@ -3065,7 +3080,8 @@
+ 
+ bool dvbridge_render_plain(struct dvbridge_renderer *r, const struct pl_frame *source,
+                           const struct dvbridge_plain *plain, struct dvbridge_view view,
+-                          int width, int height)
++                          int width, int height,
++                          const struct dvbridge_level1 *measured_l1)
+ {
+     if (!r || !plain)
+         return false;
+@@ -3076,10 +3092,10 @@
+     struct dvbridge_gl_state state;
+     save_gl_state(&state);
+     const bool fine = fine_gamut_table(r, false);
+-    r->hdr10_ready = render_hdr10(r, source, NULL, 0, 0.0, NAN, view, width, height, plain);
++    r->hdr10_ready = render_hdr10(r, source, NULL, 0, 0.0, NAN, view, width, height, plain, measured_l1);
+     /* Hades: with the standard gamut table where the finer one could not be made */
+     if (gamut_table_retry(r, fine, r->hdr10_ready)) {
+-        r->hdr10_ready = render_hdr10(r, source, NULL, 0, 0.0, NAN, view, width, height, plain);
++        r->hdr10_ready = render_hdr10(r, source, NULL, 0, 0.0, NAN, view, width, height, plain, measured_l1);
+         gamut_table_kept(r, r->hdr10_ready);
+     }
+     restore_gl_state(&state);
+
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+@@ -503,7 +503,8 @@
+                     dvbridge_view view,
+                     int width,
+                     int height,
+-                    unsigned int serial);
++                    unsigned int serial,
++                    const dvbridge_level1* measured_l1 = nullptr);
+   //! Hades: the run of the stream of the last picture that was reconstructed (PrepareConversion())
+   uintptr_t ConvertedEpoch() const { return m_convertEpoch; }
+   //! Hades: nothing reconstructed is in the frame that goes out next (its base layer, or no
+@@ -566,7 +567,9 @@
+    *             the stream, as Kodi sets the output up for the picture it shows; no HDR metadata
+    * \return true: nothing of it is taken from the picture's Dolby Vision metadata
+    */
+-  static bool ConversionOutputSdr(const VideoPicture& picture, VideoPicture& output);
++  static bool ConversionOutputSdr(const VideoPicture& picture,
++                                  VideoPicture& output,
++                                  const dvbridge_hdr10_mapping* mapping = nullptr);
+   /*!
+    * \brief Hades: what an HDR10 output is told of an HDR10 or HDR10+ picture that is not
+    *        reconstructed, adapted to the display (mapping: its peak and gamut, DVBRIDGE_HDR10_TARGET_
+
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+@@ -1842,7 +1842,7 @@
+                                 base.chroma))
+     return Fail("tunnel-picture-import");
+   // (the raster of the output: the bridge refuses any other size)
+-  const bool drawn = dvbridge_render_plain(m_renderer, &bl.frame, &plain, view, 3840, 2160);
++  const bool drawn = dvbridge_render_plain(m_renderer, &bl.frame, &plain, view, 3840, 2160, nullptr);
+   LogNotes();
+   dvbridge_gl_frame_release(&bl);
+   if (!drawn)
+@@ -2516,7 +2516,8 @@
+                                  dvbridge_view view,
+                                  int width,
+                                  int height,
+-                                 unsigned int serial)
++                                 unsigned int serial,
++                                 const dvbridge_level1* measured_l1)
+ {
+   // The same picture for the same place again: the texture holds it (as PrepareConversion())
+   const bool again = serial != 0 && serial == m_convertSerial && width == m_convertAskedWidth &&
+@@ -2547,7 +2548,7 @@
+     m_plainFailed += again ? 0 : 1;
+     return Fail("plain-picture-import");
+   }
+-  const bool drawn = dvbridge_render_plain(m_renderer, &bl.frame, &plain, view, width, height);
++  const bool drawn = dvbridge_render_plain(m_renderer, &bl.frame, &plain, view, width, height, measured_l1);
+   LogNotes();
+   dvbridge_gl_frame_release(&bl);
+   if (!drawn)
+@@ -2683,12 +2684,22 @@
+   m_convertSerial = 0;
+ }
+ 
+-bool CDVBridgeGLES::ConversionOutputSdr(const VideoPicture& picture, VideoPicture& output)
++bool CDVBridgeGLES::ConversionOutputSdr(const VideoPicture& picture,
++                                        VideoPicture& output,
++                                        const dvbridge_hdr10_mapping* mapping)
+ {
+   output.SetParams(picture);
+   output.color_transfer = AVCOL_TRC_BT709;
+-  output.color_primaries = AVCOL_PRI_BT709;
+-  output.color_space = AVCOL_SPC_BT709;
++  if (mapping && mapping->gamut == DVBRIDGE_HDR10_GAMUT_BT2020)
++  {
++    output.color_primaries = AVCOL_PRI_BT2020;
++    output.color_space = AVCOL_SPC_BT2020_NCL;
++  }
++  else
++  {
++    output.color_primaries = AVCOL_PRI_BT709;
++    output.color_space = AVCOL_SPC_BT709;
++  }
+   // (the depth of the stream: the output is made as deep as Kodi makes it for its base layer)
+   output.hasDisplayMetadata = false;
+   output.displayMetadata = {};
+@@ -2756,8 +2767,8 @@
+                                      const dvbridge_hdr10_mapping* mapping)
+ {
+   // Hades: a picture mapped to SDR is no HDR10 one
+-  if (mapping && mapping->enabled && mapping->target == DVBRIDGE_HDR10_TARGET_SDR)
+-    return ConversionOutputSdr(picture, output);
++  if (!mapping || !mapping->enabled || mapping->target == DVBRIDGE_HDR10_TARGET_SDR)
++    return ConversionOutputSdr(picture, output, mapping);
+   output.SetParams(picture);
+   output.color_transfer = AVCOL_TRC_SMPTE2084;
+   output.color_primaries = AVCOL_PRI_BT2020;
+
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
+@@ -306,8 +306,9 @@
+   bool plain = !convert && dvWindow && !WantsDVBridge(picture) && WantsPlainMapping(picture);
+   if (plain)
+   {
+-    dvWindow->TakeDVConversionMapping(picture, true, true, LibplaceboKneeWanted());
+-    CDVBridgeGLES::ConversionOutputSdr(picture, hdr10);
++    const dvbridge_hdr10_mapping mapping =
++        dvWindow->TakeDVConversionMapping(picture, true, true, LibplaceboKneeWanted());
++    CDVBridgeGLES::ConversionOutputSdr(picture, hdr10, &mapping);
+     dvWindow->DVConversionAhead(false);
+   }
+   // Hades: or an HDR10 or HDR10+ picture adapted to the display (videoscreen.hadeshdr10adapt),
+@@ -827,6 +828,9 @@
+   layer.width = m_sourceWidth;
+   layer.height = m_sourceHeight;
+   layer.chroma = buffer.doviChroma;
++  layer.pts = (buffer.doviPts != DVD_NOPTS_VALUE) ? buffer.doviPts : 0.0;
++  layer.duration = buffer.doviDuration;
++  layer.video = buffer.doviVideo;
+   // ... and its colour: its transfer, range and HDR10 metadata (0 where not known)
+   dvbridge_plain plain{};
+   plain.hlg = buffer.m_srcColTransfer == AVCOL_TRC_ARIB_STD_B67;
+@@ -844,7 +848,7 @@
+   }
+   // Hades: ... and its HDR10+ metadata, which guide the mapping where it has them
+   PlainHdr10Plus(buffer.hdr10PlusDynamic, buffer.m_srcColTransfer, plain);
+-  return window->RenderPlainMapping(layer, plain, m_sourceRect, m_destRect, buffer.doviSerial);
++  return window->RenderPlainMapping(layer, plain, m_sourceRect, m_destRect, buffer.doviSerial, buffer.doviMetadata);
+ }
+ 
+ void CLinuxRendererGLES::PlainHdr10Plus(const std::shared_ptr<const AVDynamicHDRPlus>& metadata,
+
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererVAAPIGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererVAAPIGLES.cpp
+@@ -333,11 +333,14 @@
+   if (!PlanesOf(m_vaapiFourcc, m_sourceWidth, m_sourceHeight, buffer.doviChroma,
+                 buffer.fields[FIELD_FULL], layer))
+     return -1;
++  layer.pts = (buffer.doviPts != DVD_NOPTS_VALUE) ? buffer.doviPts : 0.0;
++  layer.duration = buffer.doviDuration;
++  layer.video = buffer.doviVideo;
+   // Hades: ... and its HDR10+ metadata, which guide the mapping where it has them (not for HDR over
+   // the tunnel, which draws the picture as it is: RenderHdr10Tunnel())
+   dvbridge_plain plain = PlainColourOf(buffer);
+   PlainHdr10Plus(buffer.hdr10PlusDynamic, buffer.m_srcColTransfer, plain);
+-  return window->RenderPlainMapping(layer, plain, m_sourceRect, m_destRect, buffer.doviSerial);
++  return window->RenderPlainMapping(layer, plain, m_sourceRect, m_destRect, buffer.doviSerial, buffer.doviMetadata);
+ }
+ 
+ int CRendererVAAPIGLES::RenderHdr10Tunnel(int idx)
+
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
+@@ -299,7 +299,8 @@
+                          const dvbridge_plain& plain,
+                          const CRect& source,
+                          const CRect& dest,
+-                         unsigned int serial);
++                         unsigned int serial,
++                         const CDVMetadataBuffer& metadata = {});
+   /*!
+    * \brief Hades: the bridge that draws the pictures of the mapping taken last is set up now, where
+    *        the renderer is configured for them (render thread), rather than by the first of them:
+
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -4802,7 +4813,8 @@
+                                                  const dvbridge_plain& plain,
+                                                  const CRect& source,
+                                                  const CRect& dest,
+-                                                 unsigned int serial)
++                                                 unsigned int serial,
++                                                 const CDVMetadataBuffer& metadata)
+ {
+   // As a reconstructed picture is drawn (RenderDVConversion()): the part of the source that Kodi
+   // shows, at the place Kodi gives it, into the window alone
