@@ -1,0 +1,256 @@
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+--- 
++++ 
+@@ -3644,6 +3644,8 @@
+           </constraints>
+           <control type="spinner" format="integer" />
+         </setting>
++        <!-- Hades: taken over by videoscreen.hadesdtmfastmode; kept, hidden, as the choice of
++             an earlier build is taken over once -->
+         <setting id="videoscreen.hadesdtmfast" type="boolean" label="41883" help="41884">
+           <requirement>
+             <and>
+@@ -3659,10 +3661,37 @@
+               </or>
+             </dependency>
+           </dependencies>
++          <visible>false</visible>
+           <level>1</level>
+           <default>false</default>
+           <control type="toggle" />
+         </setting>
++        <setting id="videoscreen.hadesdtmfastmode" type="integer" label="41883" help="41884">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable">
++              <or>
++                <condition setting="videoscreen.hadesdtmsdr" operator="is">true</condition>
++                <condition setting="videoscreen.hadesdtmhdr" operator="is">true</condition>
++              </or>
++            </dependency>
++          </dependencies>
++          <level>1</level>
++          <default>0</default>
++          <constraints>
++            <options>
++              <option label="41885">0</option>
++              <option label="41886">1</option>
++              <option label="41887">2</option>
++            </options>
++          </constraints>
++          <control type="spinner" format="string" />
++        </setting>
+       </group>
+       <!-- Hades: the quality preset: how much of the graphics card's power is spent on the
+            picture (the composer, the gamut table and the fidelity step-down of the engine
+--- a/system/language-overrides/resource.language.zh_cn.po
++++ b/system/language-overrides/resource.language.zh_cn.po
+--- 
++++ 
+@@ -122,9 +122,21 @@
+ msgstr "极致"
+ 
+ msgctxt "#41883"
+-msgid "Fast"
+-msgstr "快速"
++msgid "Fast mode"
++msgstr "快速模式"
+ 
+ msgctxt "#41884"
+-msgid "The mapping is done as the smallest of cards keeps up with it: the residual of a full enhancement layer is not decoded (the picture takes the resolution of its base layer, the colour of Dolby Vision kept), the composition is libplacebo's reshaping, and every other picture is measured. It does nothing while the frame-by-frame mapping is off; it takes effect from the next video."
+-msgstr "逐帧映射按小显卡也跟得上的方式做：完整增强层的残差不解码（画面取其基层的分辨率，杜比视界的色彩保留），合成用 libplacebo 的重构，画面隔帧测量。仅在逐帧映射开启期间生效；自下一部视频起生效。"
++msgid "The mapping is done as the smallest of cards keeps up with it, in two ways: without the enhancement layer, its residual is left undecoded and the picture takes the resolution of its base layer, the colour of Dolby Vision kept; with the enhancement layer kept, its residual is reconstructed and the picture is drawn at a coarser fidelity step-down. Both ways compose with libplacebo's reshaping and measure every other picture. It does nothing while the frame-by-frame mapping is off; it takes effect from the next video."
++msgstr "逐帧映射按小显卡也跟得上的方式做，分两种：无增强层时其残差不解码（画面取其基层的分辨率，杜比视界的色彩保留）；保留增强层时其残差照常重建，画面以更粗的保真降级绘制。两种方式都用 libplacebo 的重构合成，画面隔帧测量。仅在逐帧映射开启期间生效；自下一部视频起生效。"
++
++msgctxt "#41885"
++msgid "Off"
++msgstr "关闭"
++
++msgctxt "#41886"
++msgid "Fast, no enhancement layer"
++msgstr "快速（无增强层）"
++
++msgctxt "#41887"
++msgid "Fast, full enhancement layer"
++msgstr "快速（完整增强层）"
+--- a/xbmc/settings/Settings.h
++++ b/xbmc/settings/Settings.h
+--- 
++++ 
+@@ -494,6 +494,9 @@
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRCURVE = "videoscreen.hadesdtmhdrcurve";
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRRECOVERY = "videoscreen.hadesdtmhdrrecovery";
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDTMFAST = "videoscreen.hadesdtmfast";
++  //! Hades: the fast mode of the mapping in two ways (videoscreen.hadesdtmfastmode): off,
++  //! without the enhancement layer, or with it kept and drawn at a coarser step-down
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMFASTMODE = "videoscreen.hadesdtmfastmode";
+   //! Hades: the quality preset (Standard, High, Ultra): what it writes through is the engine's own
+   static constexpr auto SETTING_VIDEOSCREEN_HADESQUALITYPRESET = "videoscreen.hadesqualitypreset";
+   //! Hades: the peak that the content mapping v4.0 is decided against, set by hand (cd/m2)
+--- a/xbmc/settings/Settings.cpp
++++ b/xbmc/settings/Settings.cpp
+--- 
++++ 
+@@ -199,6 +199,32 @@
+   return changed;
+ }
+ 
++// Hades: the fast mode of the mapping grew into a choice of two ways
++// (videoscreen.hadesdtmfastmode), once, when the settings are loaded: the switch of an earlier
++// build (videoscreen.hadesdtmfast) turned on is carried to the way without the enhancement
++// layer and turned off again, so that it is carried only once; the way is only written while
++// it is at its default, so what was chosen in this build stays.
++bool MigrateDtmFast(CSettingsManager& manager)
++{
++  const auto fast = std::dynamic_pointer_cast<CSettingBool>(
++      manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMFAST));
++  const auto mode = std::dynamic_pointer_cast<CSettingInt>(
++      manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMFASTMODE));
++  if (fast && mode && fast->GetValue() && mode->GetValue() == mode->GetDefault() &&
++      mode->SetValue(1))
++  {
++    CLog::Log(LOGINFO,
++              "CSettings: \"{}\" takes over \"{}\" (on), which an earlier build saved",
++              CSettings::SETTING_VIDEOSCREEN_HADESDTMFASTMODE,
++              CSettings::SETTING_VIDEOSCREEN_HADESDTMFAST);
++    // (the switch is spent, whatever the way is set to later: it is not taken over again at
++    // the next start)
++    fast->SetValue(false);
++    return true;
++  }
++  return false;
++}
++
+ // ... and while Kodi runs, a boolean follows its new setting
+ class CDVEngineSettingsSync : public ISettingCallback
+ {
+@@ -454,6 +480,8 @@
+     updated = true;
+   if (MigrateDtmBranches(*GetSettingsManager(), root))
+     updated = true;
++  if (MigrateDtmFast(*GetSettingsManager()))
++    updated = true;
+ #endif
+ 
+   return Load(static_cast<const TiXmlNode*>(root));
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
+--- 
++++ 
+@@ -1534,10 +1534,13 @@
+ bool DtmToHdr();
+ //! ... whether either branch is on (DtmToSdr() or DtmToHdr())
+ bool DtmTakesOutput();
+-//! Hades: the fast mode of the mapping (videoscreen.hadesdtmfast): on while it takes the
+-//! output; the engine, the bridge and the codec read its matrix in the place of the settings
+-//! the quality preset manages, and the measurement is taken of every other picture
++//! Hades: the fast mode of the mapping (videoscreen.hadesdtmfastmode): on while it takes the
++//! output; the engine, the bridge and the codec read what its ways share in the place of the
++//! settings the quality preset manages, and the measurement is taken of every other picture
+ bool DtmFast();
++//! ... which of its two ways: 0 none, 1 without the enhancement layer (its residual left
++//! undecoded, the picture drawn at level 1), 2 with it kept (drawn at level 3)
++int DtmFastMode();
+ /*!
+  * \brief Hades: the tone mapping method that decides by, while frame-by-frame dynamic tone mapping
+  *        is on: that of its curve (a spline curve unlocks the decision only: BT.2390, as the
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
+--- 
++++ 
+@@ -774,11 +774,11 @@
+                                !(hints.flags & StreamFlags::FLAG_STILL_IMAGES),
+                            m_pCodecContext->extradata, m_pCodecContext->extradata_size);
+ #ifdef HAVE_DVBRIDGE
+-  // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) leaves the residual of a
+-  // full enhancement layer undecoded: the stream plays as one whose enhancement layer cannot
+-  // be decoded, its base layer with the RPU, its pictures at the resolution of the base
+-  // layer)
+-  if (NeedsDVEnhancement() && !DVBRIDGE::DtmFast())
++  // (Hades: the way of the fast mode without the enhancement layer
++  // (videoscreen.hadesdtmfastmode 1) leaves the residual of a full enhancement layer
++  // undecoded: the stream plays as one whose enhancement layer cannot be decoded, its base
++  // layer with the RPU, its pictures at the resolution of the base layer)
++  if (NeedsDVEnhancement() && DVBRIDGE::DtmFastMode() != 1)
+   {
+     AVCodecParameters* parameters = avcodec_parameters_alloc();
+     if (!parameters)
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+--- 
++++ 
+@@ -3216,11 +3216,11 @@
+ // feed on this path (no frame of the conversion is measured)
+ int ConversionStepLevel()
+ {
+-  // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) reads its own step-down, as
+-  // the engine of a native output does (DVEngineRead()), and draws at level 1 without one being
+-  // forced: what that level changes of a picture that the reshaping composes, the upscalers of
+-  // its planes, is what the conversion waits for)
+-  const bool fast = DVBRIDGE::DtmFast();
++  // (Hades: a way of the fast mode (videoscreen.hadesdtmfastmode) reads its own step-down, as
++  // the engine of a native output does (DVEngineRead()), and draws at its own level without
++  // one being forced: what the level changes of a picture that the reshaping composes, the
++  // upscalers of its planes, is what the conversion waits for)
++  const int fast = DVBRIDGE::DtmFastMode();
+   const auto component = CServiceBroker::GetSettingsComponent();
+   const auto settings = component ? component->GetSettings() : nullptr;
+   const auto advanced = component ? component->GetAdvancedSettings() : nullptr;
+@@ -3228,13 +3228,16 @@
+   read.step = settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE)
+                    ? settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE)
+                    : 0;
+-  if (fast)
++  if (fast != 0)
+     read.step = static_cast<int>(CDVEngineSettings::Step::AUTOMATIC);
+   CDVEngineSettings::Advanced fromFile;
+   if (advanced)
+     fromFile.stepDown = advanced->m_videoDVStepDown;
+   const int forced = CDVEngineSettings::Resolve(read, fromFile).stepForced;
+-  return forced >= 0 ? forced : (fast ? 1 : 0);
++  // (the way without the enhancement layer draws at level 1; the way that keeps it draws at
++  // level 3, the coarsest step-down its residual keeps up with, not at the level of its own
++  // number)
++  return forced >= 0 ? forced : (fast == 2 ? 3 : fast);
+ }
+ } // namespace
+ 
+@@ -3850,16 +3853,23 @@
+ 
+ bool DVBRIDGE::DtmFast()
+ {
+-  // Hades: the fast mode of the mapping (videoscreen.hadesdtmfast): while one of its
+-  // branches takes the output, what the quality preset manages is not asked: the engine, the
+-  // bridge and the codec take the matrix of the fast mode in its place (the composition of
+-  // libplacebo, the coarser gamut mapping table, the fidelity step-down left to choose
+-  // itself, the residual of a full enhancement layer left undecoded, the measurement of
+-  // every other picture); with the mapping off it is nothing
++  return DtmFastMode() != 0;
++}
++
++int DVBRIDGE::DtmFastMode()
++{
++  // Hades: the fast mode of the mapping in two ways (videoscreen.hadesdtmfastmode), on only
++  // while one of its branches takes the output: both ways take the composition of libplacebo,
++  // the coarser gamut mapping table and the measurement of every other picture in the place
++  // of what the quality preset manages (through DtmFast()); without the enhancement layer
++  // (1) its residual is left undecoded and the picture drawn at level 1, with it kept (2) the
++  // picture is drawn at level 3
+   const auto settings = SettingsNow();
+-  return DtmTakesOutput() && settings &&
+-         settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMFAST) &&
+-         settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDTMFAST);
++  if (!DtmTakesOutput() || !settings)
++    return 0;
++  return settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMFASTMODE)
++             ? settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMFASTMODE)
++             : 0;
+ }
+ 
+ int DVBRIDGE::ToneMapMethodOf(int method)

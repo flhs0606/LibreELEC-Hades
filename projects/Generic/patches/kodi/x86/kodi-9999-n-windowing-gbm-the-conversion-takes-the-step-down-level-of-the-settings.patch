@@ -1,0 +1,120 @@
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+--- 
++++ 
+@@ -3208,6 +3208,34 @@
+   return BoolSetting(component ? component->GetSettings() : nullptr,
+                      CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE, false);
+ }
++
++// Hades: the fidelity step-down level of a picture rebuilt for output as HDR10, as the settings
++// say now (a bridge for it takes it when it is made, CWinSystemGbmGLESContext::RenderDVConversion();
++// native output reads it when it starts, CWinSystemGbmGLESContext::DVEngineRead()): the level the
++// settings force; without one the faithful picture, for the automatic step-down has nothing to
++// feed on this path (no frame of the conversion is measured)
++int ConversionStepLevel()
++{
++  // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) reads its own step-down, as
++  // the engine of a native output does (DVEngineRead()), and draws at level 1 without one being
++  // forced: what that level changes of a picture that the reshaping composes, the upscalers of
++  // its planes, is what the conversion waits for)
++  const bool fast = DVBRIDGE::DtmFast();
++  const auto component = CServiceBroker::GetSettingsComponent();
++  const auto settings = component ? component->GetSettings() : nullptr;
++  const auto advanced = component ? component->GetAdvancedSettings() : nullptr;
++  CDVEngineSettings::Read read;
++  read.step = settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE)
++                   ? settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE)
++                   : 0;
++  if (fast)
++    read.step = static_cast<int>(CDVEngineSettings::Step::AUTOMATIC);
++  CDVEngineSettings::Advanced fromFile;
++  if (advanced)
++    fromFile.stepDown = advanced->m_videoDVStepDown;
++  const int forced = CDVEngineSettings::Resolve(read, fromFile).stepForced;
++  return forced >= 0 ? forced : (fast ? 1 : 0);
++}
+ } // namespace
+ 
+ DVBRIDGE::OutputChoice DVBRIDGE::ListedOutputChoice()
+@@ -4914,6 +4942,14 @@
+       m_dvConvertBridge->UseComposer(ConversionComposerCCM());
+       // (and its gamut mapping table: videoscreen.hadesdvgamutfine)
+       m_dvConvertBridge->UseGamutTable(ConversionFineGamut());
++      // (and the fidelity step-down level of its pictures: videoscreen.hadesdvstepmode)
++      const int convertStep = ConversionStepLevel();
++      m_dvConvertBridge->SetStepLevel(convertStep);
++      if (convertStep > 0)
++        CLog::Log(LOGINFO, "DVBridge: the pictures rebuilt for output as HDR10 are drawn at "
++                           "fidelity step-down level {} (videoscreen.hadesdvstepmode, dvstepdown "
++                           "in advancedsettings.xml, or the fast mode of the mapping)",
++                  convertStep);
+     }
+   }
+   return m_dvConvertBridge->InitializeConversion() ? m_dvConvertBridge.get() : nullptr;
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+--- 
++++ 
+@@ -1983,6 +1983,19 @@
+   UseComposerSetting();
+ }
+ 
++void CDVBridgeGLES::SetStepLevel(int level)
++{
++  m_stepLevel = level;
++  UseStepSetting();
++}
++
++void CDVBridgeGLES::UseStepSetting()
++{
++  if (!m_renderer || dvbridge_render_step(m_renderer) == m_stepLevel)
++    return;
++  dvbridge_render_set_step(m_renderer, m_stepLevel);
++}
++
+ void CDVBridgeGLES::UseGamutSetting()
+ {
+   if (m_renderer)
+@@ -2348,6 +2361,7 @@
+   m_renderer = dvbridge_renderer_create_hdr10(m_gl->gpu, m_log);
+   UseGamutAheadSetting();
+   UseComposerSetting();
++  UseStepSetting();
+   UseGamutSetting();
+   UseMmrTableSetting();
+   m_copier = dvbridge_gl_copier_create();
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+--- 
++++ 
+@@ -134,8 +134,9 @@
+   //! also by a renderer made again within it (Cm40Video()); why: a fixed text; nullptr: taken again
+   void IgnoreL5(unsigned int picture, const unsigned int offsets[4], const char* why);
+   //! Hades: the fidelity step-down level of the frames prepared from now on (see
+-  //! dvbridge_render_set_step()). 0, the faithful picture, until it is set; Reset() keeps it
+-  void SetStepLevel(int level) { dvbridge_render_set_step(m_renderer, level); }
++  //! dvbridge_render_set_step()). 0, the faithful picture, until it is set; Reset() keeps it;
++  //! a renderer made after it is set takes it too (UseStepSetting())
++  void SetStepLevel(int level);
+   int StepLevel() const { return dvbridge_render_step(m_renderer); }
+   //! Hades: the step-down levels that change anything in a frame prepared with, or without, the
+   //! residual of an enhancement layer (see dvbridge_render_step_levels())
+@@ -602,6 +603,9 @@
+   void LogWhy(const char* what, const char* why);
+   //! The composer of the renderer, as UseComposer() asked (with a renderer that has just been made)
+   void UseComposerSetting();
++  //! The fidelity step-down level of the renderer, as SetStepLevel() asked (with a renderer
++  //! that has just been made)
++  void UseStepSetting();
+   //! The gamut mapping table of the renderer, as UseGamutTable() asked
+   void UseGamutSetting();
+   //! Hades: the MMR of the composer with a table per axis, where advancedsettings.xml asks for it
+@@ -647,6 +651,7 @@
+   bool m_layerNotDecoded = false;
+   bool m_ccmComposer = true; //!< Hades: see UseComposer()
+   bool m_fineGamut = false; //!< Hades: see UseGamutTable()
++  int m_stepLevel = 0; //!< Hades: see SetStepLevel()
+   bool m_gamutLogged = false; //!< Hades: see LogGamutTable()
+   bool m_gamutAhead = true; //!< Hades: see UseGamutAheadSetting()
+   unsigned int m_gamutMadeLogged = 0; //!< Hades: see LogGamutMade()

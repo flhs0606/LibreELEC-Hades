@@ -278,3 +278,24 @@
    * **曲线注入点清单**（§5.3 的"读取时覆盖"必须覆盖全部消费点）：`CLinuxRendererGLES::CheckVideoParameters`、`DVBRIDGE::WantsPlainMapping`/`WantsConversion`、`ConversionTargetOf`/`ConversionEligible`（demuxer hint 路径）、`RenderPlainMapping` 调用链。漏一处即静默回退。**已全部落地**：前三组在 `kodi-9999-e`（`ConversionEligible` 委托 `ConversionTargetOf`，随其头注入传递覆盖），最后一组（两渲染器 `LibplaceboKneeWanted()` 的 knee 判定与 ConfigChanged 触发器）在 `kodi-9999-zzz4`。
    * **HLG 内容**：无动态元数据，逐帧数据仅能走 GPU 测算（现受 P010 门控）；与 libplacebo-9981 的 HLG 名义峰值调优（`hadeslimit` 一族）的取值关系需在实施时定义。
    * **`dvmmrtable` 源码默认值与实验构建分歧**：当前源码默认 false，两个实验构建默认 true——实施时统一（按实测 ON 更优，倾向改源码默认或按 §3.4 预设代管下发）。**已定夺（kodi-9999-f）**：源码默认改为 true（实测 ON 快且逐位一致、全档位矩阵均为 true，无预设代管必要），`AdvancedSettings` 注释与 `DVBridgeGLES` 日志文案已同步。
+
+## 八、 DTM fast 模式（V1.3，2026-11-15 定稿）
+
+### 8.1 动机
+N100（Alder Lake-N，本固件最慢目标卡）实测 FEL 片源（变形金刚3，profile 7）两分支 DTM 均走全量重路径（带残差重建 1958/1793 帧、libplacebo 合成）而卡顿（23.976Hz 预算 41.7ms/帧）。需要一个显式泄压阀，让弱卡也能用逐帧映射。
+
+### 8.2 语义与优先级（用户拍板）
+- **总开关一个**（bool，默认关），置于动态色调映射组两分支开关之后；同一时刻仅一支路接管输出，无需分设
+- **最高优先级**：fast 生效期间凌驾于画质预设——运行时覆盖四个代管设置为 fast 矩阵：`fel=false`（不解码残差）、`gamutfine=false`（粗粒度色域表）、`stepmode=AUTOMATIC`（引擎自适应降级）、`composer=libplacebo`（N100 实测 10.8-12.1ms vs CCM 17.3-19.8ms）
+- **实现为读取时覆盖，不写存储**：引擎配置读取处在 (DTM 开启 && fast 开) 时直接采用 fast 矩阵，不触碰 guisettings、不触发写穿与仲裁；fast 关闭或 DTM 关闭瞬间回到预设值，无残留
+- **DTM 关闭时 fast 完全失效**（覆盖条件含 DtmTakesOutput()）
+- **测量隔帧**：fast 期间每 2 帧测量一次，中间帧复用上次统计（映射从逐帧退化为半频，静态场景无感，快速闪变场景曲线跟进略滞后）
+
+### 8.3 技术要点与风险
+- **RPU 接缝（主要风险）**：profile 7 的 RPU 随 EL 轨道传输。理想 fast = 解析 EL 取 RPU 但不解码残差画面（FEL 按 MEL 处理，保留 DV 色彩与动态元数据，仅画面回退 BL 分辨率）；解码器已有 MEL 同类管道（RPU 在、残差无）。实施时验证接缝代价；若过大，退化方案 = 完全跳过 EL（连 RPU 丢弃，画面为纯 HDR10 基级 + DTM 测量，色彩走 HDR10 grade）——保底流畅但画质更低，届时回报用户定夺
+- 补丁 j（DTM-HDR 强制 EVERY）与 fast 的交互：j 保证 HDR 分支重建资格，fast 的残差门控在 EL 解码层生效，两者正交
+- 非 FEL 片源：fast 的残差杠杆无感，仅测量隔帧生效
+
+### 8.4 落地
+- `kodi-9999-k-*`：settings.xml（新设置 `videoscreen.hadesdtmfast` + 41883/41884 zh/en 文案入覆盖 po）、解码器（EL/RPU 接缝）、引擎配置读取处（fast 矩阵覆盖）、桥（测量隔帧）
+- 与 j 一并构建验证；N100 验收 = 变形金刚3 FEL 两分支 fast 开启后 41.7ms 预算内（DVBridge 统计行 GPU avg/max + presentations over 1.5 periods）
