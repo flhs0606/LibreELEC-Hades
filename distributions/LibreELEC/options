@@ -28,7 +28,7 @@
   if [ "${BUILDER_NAME}" = "Hades" ]; then
     BUILDER_VERSION="${BUILDER_VERSION-F1.0}"
   fi
-  CUSTOM_VERSION="${CUSTOM_VERSION:-Hades-F1.0}" 
+  CUSTOM_VERSION="${CUSTOM_VERSION:-Hades-F1.1}"
 
 # Welcome Message for SSH Server (up to 5 Lines)
   GREETING0="##############################################"

@@ -25,8 +25,8 @@ script conventions. Device scripts run under busybox `sh`, not bash.
 8. When the user mentions "检查log", "查log", "查下log", "看log", "看下日志",
    "还是卡", "依旧卡顿", "执行播放测试", "对比仓库", "参考原版", or reports
    playback issues, invoke the `kodi-diagnose` skill first. The `kodi-diag`
-   CLI lives inside WSL (`~/.local/bin/kodi-diag`); run it via
-   `wsl -e bash -lc 'kodi-diag ...'`, not directly from PowerShell.
+   CLI lives at `~/.local/bin/kodi-diag` in this same environment; run it
+   directly from the shell.
 
 ## Target Configuration
 Defaults: `PROJECT=Generic ARCH=x86_64 DISTRO=LibreELEC` (this fork targets
@@ -34,18 +34,17 @@ Generic/x86_64 with native Dolby Vision & HDR10+). Example alternate target:
 `PROJECT=RPi DEVICE=RPi5 ARCH=aarch64`.
 
 ## Execution Environment
-This repository lives inside WSL (Ubuntu) at
-`/home/mephis/Project/LibreELEC-Hades`, while the agent's shell is Windows
-PowerShell. Wrap every repo command in WSL — never run bash scripts directly
-from PowerShell:
+This repository lives at `/home/mephis/Project/LibreELEC-Hades` inside WSL
+(Ubuntu), and the agent's shell is native bash in the same environment. Run
+repo commands directly — no `wsl` wrapper is needed:
 
 ```
-wsl -d Ubuntu --cd /home/mephis/Project/LibreELEC-Hades -- bash -c "<command>"
+cd /home/mephis/Project/LibreELEC-Hades && <command>
 ```
 
-File tools (read/write/edit) may operate on the UNC path
-`\\wsl.localhost\Ubuntu\home\mephis\Project\LibreELEC-Hades` directly; only
-shell execution needs the WSL wrapper.
+File tools (read/write/edit) operate on the native path directly. Never use
+Windows UNC paths (`\\wsl.localhost\...`) or route commands through
+PowerShell.
 
 ## Commands (only when explicitly requested)
 | Task | Command |

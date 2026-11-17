@@ -1,0 +1,593 @@
+diff --git a/tools/dvbridge/dvbridge_measure.c b/tools/dvbridge/dvbridge_measure.c
+index af1ffa2..91d31a5 100644
+--- a/tools/dvbridge/dvbridge_measure.c
++++ b/tools/dvbridge/dvbridge_measure.c
+@@ -51,7 +51,7 @@ static const char VERTEX[] = "#version 300 es\n"
+ 
+ #define BLOCK                                                                                                  \
+     HLG_TO_PQ                                                                                                  \
+-    "float code(float v) { return floor(v * 65535.0 / 64.0 + 0.5); }\n"                                      \
++    "float code(float v) { return floor(v * code_mul + 0.5); }\n"                                             \
+     "vec3 rgb(float y, vec2 c) {\n"                                                                           \
+     "  float yn = (y - 64.0) / 876.0;\n"                                                                      \
+     "  vec2 p = (c - 512.0) / 896.0;\n"                                                                       \
+@@ -60,8 +60,13 @@ static const char VERTEX[] = "#version 300 es\n"
+     "  return hlg != 0 ? hlg_to_pq(s) : s;\n"                                                                 \
+     "}\n"                                                                                                     \
+     "vec2 block(int c, int r) {\n"                                                                            \
+-    "  vec2 ch = texelFetch(chroma, ivec2(c, r), 0).rg;\n"                                                    \
+-    "  ch = vec2(code(ch.x), code(ch.y));\n"                                                                  \
++    "vec2 chroma_of(int c, int r) {\n"                                                                        \
++    "  vec2 ch = planar != 0 ? vec2(texelFetch(chroma, ivec2(c, r), 0).r,\n"                                  \
++    "                                texelFetch(chroma_v, ivec2(c, r), 0).r)\n"                               \
++    "                         : texelFetch(chroma, ivec2(c, r), 0).rg;\n"                                     \
++    "  return vec2(code(ch.x), code(ch.y));\n"                                                                \
++    "}\n"                                                                                                     \
++    "  vec2 ch = chroma_of(c, r);\n"                                                                          \
+     "  vec3 m = rgb(code(texelFetch(luma, ivec2(2 * c, 2 * r), 0).r), ch)\n"                                  \
+     "         + rgb(code(texelFetch(luma, ivec2(2 * c + 1, 2 * r), 0).r), ch)\n"                              \
+     "         + rgb(code(texelFetch(luma, ivec2(2 * c, 2 * r + 1), 0).r), ch)\n"                              \
+@@ -77,6 +82,9 @@ static const char VERTEX[] = "#version 300 es\n"
+     "precision highp sampler2D;\n"                                                                            \
+     "uniform sampler2D luma;\n"                                                                               \
+     "uniform sampler2D chroma;\n"                                                                             \
++    "uniform sampler2D chroma_v; /* the V plane of a picture of three planes; the chroma where it is interleaved */\n" \
++    "uniform int planar; /* the picture is of three planes: U and V each a texture of their own */\n"         \
++    "uniform float code_mul; /* of a normalized texel, its 10-bit code: P010 in the top of 16, three planes in the bottom */\n" \
+     "uniform ivec4 geo; /* blocks_w, blocks_h, the window's first and end block columns */\n"                 \
+     "uniform int hlg; /* the picture is HLG, measured as ST 2084 (HLG sent as Dolby Vision) */\n"             \
+     "out vec4 o;\n"
+@@ -120,7 +128,7 @@ struct slot {
+ 
+ struct dvbridge_measure {
+     GLuint programs[2], vertex_array;
+-    GLint geo[2], luma[2], chroma[2], hlg[2];
++    GLint geo[2], luma[2], chroma[2], chroma_v[2], planar[2], code_mul[2], hlg[2];
+     struct slot slots[SLOTS];
+     unsigned next_order;
+     float *columns; /* (the column values in the order dvbridge_measured_raw has them) */
+@@ -188,6 +196,9 @@ struct dvbridge_measure *dvbridge_measure_create(void)
+             m->geo[i] = glGetUniformLocation(m->programs[i], "geo");
+             m->luma[i] = glGetUniformLocation(m->programs[i], "luma");
+             m->chroma[i] = glGetUniformLocation(m->programs[i], "chroma");
++            m->chroma_v[i] = glGetUniformLocation(m->programs[i], "chroma_v");
++            m->planar[i] = glGetUniformLocation(m->programs[i], "planar");
++            m->code_mul[i] = glGetUniformLocation(m->programs[i], "code_mul");
+             m->hlg[i] = glGetUniformLocation(m->programs[i], "hlg");
+         }
+     glGenVertexArrays(1, &m->vertex_array);
+@@ -258,10 +269,12 @@ bool dvbridge_measure_submit(struct dvbridge_measure *m, unsigned luma, unsigned
+     return dvbridge_measure_submit_ex(m, luma, chroma, width, height, window, pts, tag, false);
+ }
+ 
+-bool dvbridge_measure_submit_ex(struct dvbridge_measure *m, unsigned luma, unsigned chroma, int width, int height,
+-                                const int window[2], double pts, uint64_t tag, bool hlg)
++static bool submit_picture(struct dvbridge_measure *m, unsigned luma, unsigned chroma,
++                           unsigned chroma_v, bool planar, int width, int height,
++                           const int window[2], double pts, uint64_t tag, bool hlg)
+ {
+-    if (!m || !luma || !chroma || width < 2 * DVBRIDGE_MEASURED_BANDS || height < 2 * DVBRIDGE_MEASURED_ROW_GROUPS ||
++    if (!m || !luma || !chroma || (planar && !chroma_v) ||
++        width < 2 * DVBRIDGE_MEASURED_BANDS || height < 2 * DVBRIDGE_MEASURED_ROW_GROUPS ||
+         width > 4096 || height > 2304 || !window || window[0] < 0 || window[1] > width / 2 || window[0] >= window[1])
+         return false;
+     struct slot *s = NULL;
+@@ -295,12 +308,18 @@ bool dvbridge_measure_submit_ex(struct dvbridge_measure *m, unsigned luma, unsig
+         glActiveTexture(GL_TEXTURE1);
+         glBindTexture(GL_TEXTURE_2D, chroma);
+         glBindSampler(1, 0);
++        glActiveTexture(GL_TEXTURE2);
++        glBindTexture(GL_TEXTURE_2D, planar ? chroma_v : chroma);
++        glBindSampler(2, 0);
+         const int size[2][2] = {{DVBRIDGE_MEASURED_BANDS, bh}, {bw, DVBRIDGE_MEASURED_COLUMN_BANDS / 4}};
+         glPixelStorei(GL_PACK_ALIGNMENT, 4);
+         for (int i = 0; i < 2; ++i) {
+             glUseProgram(m->programs[i]);
+             glUniform1i(m->luma[i], 0);
+             glUniform1i(m->chroma[i], 1);
++            glUniform1i(m->chroma_v[i], 2);
++            glUniform1i(m->planar[i], planar ? 1 : 0);
++            glUniform1f(m->code_mul[i], planar ? 65535.0f : 1023.984375f);
+             glUniform4i(m->geo[i], bw, bh, window[0], window[1]);
+             glUniform1i(m->hlg[i], hlg ? 1 : 0);
+             glBindFramebuffer(GL_FRAMEBUFFER, s->framebuffers[i]);
+@@ -331,6 +350,19 @@ bool dvbridge_measure_submit_ex(struct dvbridge_measure *m, unsigned luma, unsig
+     return true;
+ }
+ 
++bool dvbridge_measure_submit_ex(struct dvbridge_measure *m, unsigned luma, unsigned chroma, int width, int height,
++                                const int window[2], double pts, uint64_t tag, bool hlg)
++{
++    return submit_picture(m, luma, chroma, chroma, false, width, height, window, pts, tag, hlg);
++}
++
++bool dvbridge_measure_submit_planar(struct dvbridge_measure *m, unsigned luma, unsigned chroma_u,
++                                    unsigned chroma_v, int width, int height, const int window[2],
++                                    double pts, uint64_t tag, bool hlg)
++{
++    return submit_picture(m, luma, chroma_u, chroma_v, true, width, height, window, pts, tag, hlg);
++}
++
+ unsigned dvbridge_measure_collect(struct dvbridge_measure *m,
+                                   void (*done)(const struct dvbridge_measured_raw *raw, uint64_t tag, void *context),
+                                   void *context)
+diff --git a/tools/dvbridge/dvbridge_measure.h b/tools/dvbridge/dvbridge_measure.h
+index 3b7f166..fb3551c 100644
+--- a/tools/dvbridge/dvbridge_measure.h
++++ b/tools/dvbridge/dvbridge_measure.h
+@@ -43,6 +43,13 @@ bool dvbridge_measure_submit(struct dvbridge_measure *m, unsigned luma, unsigned
+  *  */
+ bool dvbridge_measure_submit_ex(struct dvbridge_measure *m, unsigned luma, unsigned chroma, int width, int height,
+                                 const int window[2], double pts, uint64_t tag, bool hlg);
++/* Hades: the same for a picture of three planes (DVBRIDGE_YUV420P10 of dvbridge_gl_frame.h, the
++ * picture that the processor decoded): its 10 bits are the bottom of the 16 of each texel, and U
++ * and V are each a texture of their own (chroma_u, chroma_v, R16, half size) in place of the
++ * interleaved chroma of P010. */
++bool dvbridge_measure_submit_planar(struct dvbridge_measure *m, unsigned luma, unsigned chroma_u,
++                                    unsigned chroma_v, int width, int height, const int window[2],
++                                    double pts, uint64_t tag, bool hlg);
+ /* The measurements that the GPU has finished, in the order they were queued, each to done(); one not finished stops
+  * it (so that they come in order). Returns how many are still in flight. */
+ unsigned dvbridge_measure_collect(struct dvbridge_measure *m,
+diff --git a/tools/dvbridge/dvbridge_render.c b/tools/dvbridge/dvbridge_render.c
+index e076c31..380b4be 100644
+--- a/tools/dvbridge/dvbridge_render.c
++++ b/tools/dvbridge/dvbridge_render.c
+@@ -722,6 +722,15 @@ static struct dvbridge_renderer *create_renderer(pl_gpu gpu, pl_log log, bool tr
+     r->context = dvbridge_create();
+     pl_fmt fmt = pl_find_fmt(gpu, PL_FMT_FLOAT, 4, 32, 32,
+                              PL_FMT_CAP_RENDERABLE | PL_FMT_CAP_SAMPLEABLE);
++    /* Hades: told once (to the journal): whether the picture that Kodi draws the GUI over could be
++     * a 16-bit normalized one instead of the 32-bit floats (the same 12-bit codes, half the bytes
++     * written and read) */
++    {
++        pl_fmt u16 = pl_find_fmt(gpu, PL_FMT_UNORM, 4, 16, 16,
++                                 PL_FMT_CAP_RENDERABLE | PL_FMT_CAP_SAMPLEABLE);
++        fprintf(stderr, "DV render: the formats of the picture drawn over (rgba32f %d, unorm16 %d)\n",
++                fmt ? 1 : 0, u16 ? 1 : 0);
++    }
+     /* Hades: the picture that Kodi draws over in 16-bit codes, the same codes at half the bytes:
+      * where this GPU renders to one, and until the source transport is asked for, whose passes
+      * read the alpha of the picture as their 2.0 (PICTURE_ALPHA), which the 16 bits cannot hold
+diff --git a/tools/dvbridge/dvbridge_source.c b/tools/dvbridge/dvbridge_source.c
+index 12282b3..8858ba0 100644
+--- a/tools/dvbridge/dvbridge_source.c
++++ b/tools/dvbridge/dvbridge_source.c
+@@ -3533,6 +3533,19 @@ bool dvbridge_source_picture(struct dvbridge_source_packer *p,
+      * not composite the GUI (dvbridge_source_gui_in_placed()); in the tiles that it may reach, or
+      * over the whole raster where they could not be made. Not with the GUI cache, which reads the
+      * picture of pass 3 with the GUI composited over it. */
++    /* Hades: once a process, where Kodi asked for the GUI in place, what the choice was decided
++     * by (fprintf to the journal: this file has no logger of its own) */
++    static bool in_place_told = false;
++    if (!in_place_told && inplace > 0.0f)
++    {
++        in_place_told = true;
++        const bool taken =
++            gui && params->affine && !cached && p->pack_gui && !p->inplace_failed;
++        fprintf(stderr, "DV source transport: the GUI in place %s (asked %.4f, gui %u, affine %d,"
++                        " cached %d, pack_gui %u, failed %d)\n",
++                taken ? "taken" : "refused", inplace, gui, params->affine, cached, p->pack_gui,
++                p->inplace_failed);
++    }
+     if (inplace > 0.0f && gui && params->affine && !cached && p->pack_gui && !p->inplace_failed) {
+         if (!end(&state, true))
+             return false;
+@@ -3719,6 +3732,17 @@ bool dvbridge_source_pack(struct dvbridge_source_packer *p,
+         glUniform1f(p->g.peak, p->inplace_peak);
+         glUniform1i(p->g.has_layer, 1);
+         const int how = p->tiles_mode ? 3 : 0;
++        /* Hades: the draw traced (to the journal): the form of the program (a fragment a pair of
++         * pixels, or one each) and the tile mask of this frame */
++        {
++            static unsigned traced = 0;
++            ++traced;
++            if (traced <= 6 || traced % 600 == 0)
++                fprintf(stderr, "DV source transport: the GUI drawn in place (no. %u, quad %d, "
++                                "tiles %d, how %d, vertices %d)\n",
++                        traced, p->quad_gui ? 1 : 0, p->tiles_mode, how,
++                        (int)tiled_vertices(how));
++        }
+         set_tiles(p, p->g.tiles, p->g.mode, how);
+         glUniform1i(p->g.tflip, flip_y);
+         set_inverse(p->g.ycc_inverse, p->g.lms_inverse, p->g.code_max, params);
+diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+index 7cb7ed5..aeedf5d 100644
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -2173,6 +2173,10 @@ bool CWinSystemGbmGLESContext::SetGuiCompositing(int colorTransfer)
+ 
+ bool CWinSystemGbmGLESContext::BeginGuiComposite(bool guiWillRender)
+ {
++  // Hades: the GPU time of the GUI pass of a frame before this one, whose result is back by now;
++  // the ring is small, and a timer that is never collected blocks its slot (GuiPassTimer)
++  GuiPassTimerCollect();
++  CompQuadTimerCollect();
+ #ifdef HAVE_DVBRIDGE
+   // Hades: the menus in Dolby Vision start, go on or end, before the GUI of this frame is drawn
+   DVMenusUpdate();
+@@ -2317,6 +2321,9 @@ bool CWinSystemGbmGLESContext::BeginGuiComposite(bool guiWillRender)
+     glClear(GL_COLOR_BUFFER_BIT);
+     m_guiFboClean = true;
+   }
++  // Hades: the GUI pass of this frame starts here, with the FBO bound and cleared; the counter
++  // before the draws of the windows is one end of its GPU time (LogDVStats())
++  GuiPassTimerMark(true);
+ 
+ #ifdef HAVE_DVBRIDGE
+   // Hades: (the GUI of this frame goes into the FBO, from which a frame of the menus is made)
+@@ -2331,7 +2338,11 @@ void CWinSystemGbmGLESContext::EndGuiComposite()
+   // (CompositeGui())
+   m_guiPassElements = m_guiWillRender ? GetGUIElementCount() : 0;
+   if (m_guiWillRender)
++  {
+     m_guiFbo.EndRender();
++    // Hades: the draws of the GUI pass are queued; the counter after them closes its GPU time
++    GuiPassTimerMark(false);
++  }
+ 
+   // When the GUI render is skipped this frame, Flip(hasRendered=false, ...)
+   // will skip eglSwapBuffers and the back-buffer contents never reach the
+@@ -2481,6 +2492,10 @@ void CWinSystemGbmGLESContext::CompositeGui()
+     m_dvGuiReuse.HdrDrawn();
+ #endif
+ 
++  // Hades: the composite of this frame starts here, its quad (or the same quad under the
++  // rectangles of the tile mask) into the picture; the counter before it is one end of the GPU
++  // time of the composite (LogDVStats())
++  CompQuadTimerMark(true);
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, m_guiFbo.Texture());
+ 
+@@ -2585,6 +2600,8 @@ void CWinSystemGbmGLESContext::CompositeGui()
+ #endif
+     glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, idx);
+ 
++  // Hades: the quads of the composite are queued; the counter after them closes its GPU time
++  CompQuadTimerMark(false);
+   glDisableVertexAttribArray(posLoc);
+   glDisableVertexAttribArray(texLoc);
+ 
+@@ -3844,6 +3861,169 @@ void CWinSystemGbmGLESContext::Hdr10AdaptTimerCollect()
+   }
+ }
+ 
++void CWinSystemGbmGLESContext::GuiPassTimerMark(bool begin)
++{
++  if (!m_guiPassTimersMade)
++  {
++    m_guiPassTimersMade = true;
++    if (IsExtSupported("GL_EXT_disjoint_timer_query"))
++    {
++      if (!m_glGenQueriesEXT)
++        m_glGenQueriesEXT =
++            reinterpret_cast<PFNGLGENQUERIESEXTPROC>(eglGetProcAddress("glGenQueriesEXT"));
++      if (!m_glDeleteQueriesEXT)
++        m_glDeleteQueriesEXT =
++            reinterpret_cast<PFNGLDELETEQUERIESEXTPROC>(eglGetProcAddress("glDeleteQueriesEXT"));
++      if (!m_glQueryCounterEXT)
++        m_glQueryCounterEXT =
++            reinterpret_cast<PFNGLQUERYCOUNTEREXTPROC>(eglGetProcAddress("glQueryCounterEXT"));
++      if (!m_glGetQueryObjectuivEXT)
++        m_glGetQueryObjectuivEXT =
++            reinterpret_cast<PFNGLGETQUERYOBJECTUIVEXTPROC>(eglGetProcAddress("glGetQueryObjectuivEXT"));
++      if (!m_glGetQueryObjectui64vEXT)
++        m_glGetQueryObjectui64vEXT =
++            reinterpret_cast<PFNGLGETQUERYOBJECTUI64VEXTPROC>(
++                eglGetProcAddress("glGetQueryObjectui64vEXT"));
++    }
++    if (m_glGenQueriesEXT && m_glDeleteQueriesEXT && m_glQueryCounterEXT &&
++        m_glGetQueryObjectuivEXT && m_glGetQueryObjectui64vEXT)
++      for (auto& timer : m_guiPassTimers)
++      {
++        m_glGenQueriesEXT(1, &timer.begin);
++        m_glGenQueriesEXT(1, &timer.end);
++      }
++  }
++  auto& timer = m_guiPassTimers[m_guiPassTimerIndex];
++  if (!timer.begin || !timer.end)
++    return;
++  if (begin)
++  {
++    if (timer.pending)
++      return; // (its result is not back yet: this GUI pass is not timed)
++    m_glQueryCounterEXT(timer.begin, GL_TIMESTAMP_EXT);
++    timer.begun = true;
++  }
++  else if (timer.begun)
++  {
++    m_glQueryCounterEXT(timer.end, GL_TIMESTAMP_EXT);
++    timer.begun = false;
++    timer.pending = true;
++    m_guiPassTimerIndex = (m_guiPassTimerIndex + 1) % m_guiPassTimers.size();
++  }
++}
++
++void CWinSystemGbmGLESContext::GuiPassTimerCollect()
++{
++  if (!m_glGetQueryObjectuivEXT || !m_guiPassTimers[0].begin)
++    return;
++  // (reading the disjoint state clears it; a disjoint period makes the results in flight useless)
++  GLint disjoint = 0;
++  glGetIntegerv(GL_GPU_DISJOINT_EXT, &disjoint);
++  for (size_t n = 0; n < m_guiPassTimers.size(); ++n)
++  {
++    auto& timer = m_guiPassTimers[(m_guiPassTimerIndex + n) % m_guiPassTimers.size()];
++    if (!timer.pending)
++      continue;
++    GLuint available = 0;
++    m_glGetQueryObjectuivEXT(timer.end, GL_QUERY_RESULT_AVAILABLE_EXT, &available);
++    if (!available)
++      break;
++    timer.pending = false;
++    if (disjoint)
++      continue;
++    GLuint64 start = 0, finish = 0;
++    m_glGetQueryObjectui64vEXT(timer.begin, GL_QUERY_RESULT_EXT, &start);
++    m_glGetQueryObjectui64vEXT(timer.end, GL_QUERY_RESULT_EXT, &finish);
++    if (finish <= start)
++      continue;
++    const double ms = static_cast<double>(finish - start) / 1e6;
++    ++m_dvStats.guiPassDrawn;
++    m_dvStats.guiPassSumMs += ms;
++    m_dvStats.guiPassMaxMs = std::max(m_dvStats.guiPassMaxMs, ms);
++  }
++}
++
++void CWinSystemGbmGLESContext::CompQuadTimerMark(bool begin)
++{
++  if (!m_compQuadTimersMade)
++  {
++    m_compQuadTimersMade = true;
++    if (IsExtSupported("GL_EXT_disjoint_timer_query"))
++    {
++      if (!m_glGenQueriesEXT)
++        m_glGenQueriesEXT =
++            reinterpret_cast<PFNGLGENQUERIESEXTPROC>(eglGetProcAddress("glGenQueriesEXT"));
++      if (!m_glDeleteQueriesEXT)
++        m_glDeleteQueriesEXT =
++            reinterpret_cast<PFNGLDELETEQUERIESEXTPROC>(eglGetProcAddress("glDeleteQueriesEXT"));
++      if (!m_glQueryCounterEXT)
++        m_glQueryCounterEXT =
++            reinterpret_cast<PFNGLQUERYCOUNTEREXTPROC>(eglGetProcAddress("glQueryCounterEXT"));
++      if (!m_glGetQueryObjectuivEXT)
++        m_glGetQueryObjectuivEXT =
++            reinterpret_cast<PFNGLGETQUERYOBJECTUIVEXTPROC>(eglGetProcAddress("glGetQueryObjectuivEXT"));
++      if (!m_glGetQueryObjectui64vEXT)
++        m_glGetQueryObjectui64vEXT =
++            reinterpret_cast<PFNGLGETQUERYOBJECTUI64VEXTPROC>(
++                eglGetProcAddress("glGetQueryObjectui64vEXT"));
++    }
++    if (m_glGenQueriesEXT && m_glDeleteQueriesEXT && m_glQueryCounterEXT &&
++        m_glGetQueryObjectuivEXT && m_glGetQueryObjectui64vEXT)
++      for (auto& timer : m_compQuadTimers)
++      {
++        m_glGenQueriesEXT(1, &timer.begin);
++        m_glGenQueriesEXT(1, &timer.end);
++      }
++  }
++  auto& timer = m_compQuadTimers[m_compQuadTimerIndex];
++  if (!timer.begin || !timer.end)
++    return;
++  if (begin)
++  {
++    if (timer.pending)
++      return; // (its result is not back yet: this composite is not timed)
++    m_glQueryCounterEXT(timer.begin, GL_TIMESTAMP_EXT);
++    timer.begun = true;
++  }
++  else if (timer.begun)
++  {
++    m_glQueryCounterEXT(timer.end, GL_TIMESTAMP_EXT);
++    timer.begun = false;
++    timer.pending = true;
++    m_compQuadTimerIndex = (m_compQuadTimerIndex + 1) % m_compQuadTimers.size();
++  }
++}
++
++void CWinSystemGbmGLESContext::CompQuadTimerCollect()
++{
++  if (!m_glGetQueryObjectuivEXT || !m_compQuadTimers[0].begin)
++    return;
++  GLint disjoint = 0;
++  glGetIntegerv(GL_GPU_DISJOINT_EXT, &disjoint);
++  for (size_t n = 0; n < m_compQuadTimers.size(); ++n)
++  {
++    auto& timer = m_compQuadTimers[(m_compQuadTimerIndex + n) % m_compQuadTimers.size()];
++    if (!timer.pending)
++      continue;
++    GLuint available = 0;
++    m_glGetQueryObjectuivEXT(timer.end, GL_QUERY_RESULT_AVAILABLE_EXT, &available);
++    if (!available)
++      break;
++    timer.pending = false;
++    if (disjoint)
++      continue;
++    GLuint64 start = 0, finish = 0;
++    m_glGetQueryObjectui64vEXT(timer.begin, GL_QUERY_RESULT_EXT, &start);
++    m_glGetQueryObjectui64vEXT(timer.end, GL_QUERY_RESULT_EXT, &finish);
++    if (finish <= start)
++      continue;
++    const double ms = static_cast<double>(finish - start) / 1e6;
++    ++m_dvStats.compQuadDrawn;
++    m_dvStats.compQuadSumMs += ms;
++    m_dvStats.compQuadMaxMs = std::max(m_dvStats.compQuadMaxMs, ms);
++  }
++}
++
+ void CWinSystemGbmGLESContext::Hdr10AdaptStatsLog(bool end)
+ {
+   const auto now = std::chrono::steady_clock::now();
+@@ -5059,7 +5239,8 @@ int CWinSystemGbmGLESContext::RenderPlainMapping(const CDVBridgeGLES::Layer& lay
+     {
+       pL1 = &l1;
+     }
+-    else if (DVMeasureReady() && layer.layout == DVBRIDGE_P010)
++    else if (DVMeasureReady() &&
++             (layer.layout == DVBRIDGE_P010 || layer.layout == DVBRIDGE_YUV420P10))
+     {
+       const double gap = layer.duration > 0 ? 24 * layer.duration : 0;
+       const bool videoChanged = layer.video && layer.video != m_dvMeasuredVideo;
+@@ -6355,20 +6536,29 @@ bool CWinSystemGbmGLESContext::DVMeasurePicture(const CDVBridgeGLES::Layer& laye
+   const bool dtmNeedsMeasure = m_dvConvertMapping.enabled;
+   if (!dtmNeedsMeasure && (!m_dvBridge || !m_outputHandover.HoldsOutput()))
+     return false;
+-  if (layer.layout != DVBRIDGE_P010 ||
+-      !DVMeasureReady())
++  // (Hades: the interleaved chroma of P010, or the U and V of their own textures that the picture
++  // of the processor decoded has: DVBRIDGE_YUV420P10, its 10 bits at the bottom of 16)
++  const bool planar = layer.layout == DVBRIDGE_YUV420P10 && layer.planes[2].texture;
++  if ((!planar && layer.layout != DVBRIDGE_P010) || !DVMeasureReady())
+     return false;
+   if (std::find(m_dvMeasureSubmitted.begin(), m_dvMeasureSubmitted.end(), layer.pts) !=
+       m_dvMeasureSubmitted.end())
+     return true;
+   int window[2];
+   dvbridge_measured_window(m_dvMeasured.get(), layer.width / 2, window);
+-  // (Hades: an HLG picture is measured as the PQ picture that goes out:
+-  // dvbridge_measure_submit_ex())
+-  if (!dvbridge_measure_submit_ex(m_dvMeasure.get(), layer.planes[0].texture,
+-                                  layer.planes[1].texture, layer.width, layer.height, window,
+-                                  layer.pts, m_dvMeasureEpoch,
+-                                  layer.baseTransfer == DVBRIDGE_BASE_HLG_TO_PQ))
++  // (Hades: an HLG picture is measured as the PQ picture that goes out, whichever layout its
++  // planes are: dvbridge_measure_submit_ex(), _planar())
++  const bool submitted =
++      planar ? dvbridge_measure_submit_planar(m_dvMeasure.get(), layer.planes[0].texture,
++                                              layer.planes[1].texture, layer.planes[2].texture,
++                                              layer.width, layer.height, window, layer.pts,
++                                              m_dvMeasureEpoch,
++                                              layer.baseTransfer == DVBRIDGE_BASE_HLG_TO_PQ)
++             : dvbridge_measure_submit_ex(m_dvMeasure.get(), layer.planes[0].texture,
++                                          layer.planes[1].texture, layer.width, layer.height, window,
++                                          layer.pts, m_dvMeasureEpoch,
++                                          layer.baseTransfer == DVBRIDGE_BASE_HLG_TO_PQ);
++  if (!submitted)
+     return false;
+   m_dvMeasureSubmitted.push_back(layer.pts);
+   if (m_dvMeasureSubmitted.size() > 64)
+@@ -6867,11 +7057,40 @@ bool CWinSystemGbmGLESContext::RenderDVBridge(const CDVBridgeGLES::Layer& layer,
+                          "(video/dvguiinplace)");
+     }
+   }
++  // Hades: once a session, at the first frame with something over the picture, every gate of the
++  // choice above told together: a path that refuses itself silently cannot be diagnosed from what
++  // it leaves out (the acceptance below the bridge is told by dvbridge_source.c, to the journal)
++  static bool dvInPlaceGatesTold = false;
++  if (!dvInPlaceGatesTold && !overlayFree)
++  {
++    dvInPlaceGatesTold = true;
++    CLog::Log(LOGINFO,
++              "DVBridge: the GUI in place of the packer: asked {}, the gates: drawn-tiles {}, "
++              "FBO {}, shader-PQ {}, limited {}, exact {}, peak {:.3f}, setting {}, ahead {}, "
++              "announce {}",
++              guiInPlace > 0.0f ? "yes" : "no", drawnTiles, m_guiFbo.IsValid(),
++              m_compositeShader ? m_compositeShader->IsPQ() : false, m_compositeLimited,
++              m_compositeShader ? m_compositeShader->IsExact() : false,
++              m_compositeShader ? m_compositeShader->GetPQPeak() : 0.0f,
++              !drawnSettings || drawnSettings->GetAdvancedSettings()->m_videoDVGuiInPlace,
++              DVAheadWanted(), static_cast<int>(m_modeAnnounce.Pending()));
++  }
+   if (!overlayFree && !captured && drawnTiles && m_guiFbo.IsValid())
++  {
+     m_dvBridge->SetDrawnOver(m_guiFbo.Texture(), m_guiFboWidth, m_guiFboHeight,
+                              m_compositeShader ? m_compositeRevision : 0, guiInPlace);
++    // Hades: counted for the 10-s line: what the frames of this span asked of the packer (whether
++    // it took the ask is told by the frames composited by the packer and the composite counters)
++    if (guiInPlace > 0.0f)
++      ++m_dvStats.guiHandedInPlace;
++    else
++      ++m_dvStats.guiHandedTexture;
++  }
+   else
++  {
+     m_dvBridge->SetDrawnOver(0, 0, 0);
++    ++m_dvStats.guiHandedNone;
++  }
+   DVGpuTimerMark(true);
+   // (Hades: a layer without residual is set aside by the bridge, which tells the log of it)
+   m_dvFrame = m_dvBridge->PrepareHardware(layer, enhancement, metadata, geometry,
+@@ -10503,6 +10722,26 @@ void CWinSystemGbmGLESContext::LogDVStats(const char* period)
+   // Hades: which frames had something over the picture, and why (CDVGuiReuse)
+   auto* const gui = CServiceBroker::GetGUI();
+   ioctls += m_dvGuiReuse.Line(gui ? gui->GetWindowManager().GetActiveWindowOrDialog() : -1);
++  // Hades: what the GUI passes of this span drew into the GUI FBO took on the GPU (GuiPassTimer):
++  // the composite over the picture is timed with the passes; this is what drew what they composite
++  if (m_dvStats.guiPassDrawn)
++    ioctls += StringUtils::Format("; the GUI pass drawn {} times, GPU avg {:.2f} ms, longest {:.2f} ms",
++                                  m_dvStats.guiPassDrawn,
++                                  m_dvStats.guiPassSumMs / m_dvStats.guiPassDrawn,
++                                  m_dvStats.guiPassMaxMs);
++  // Hades: what the composites of this span took on the GPU: the quads over the picture of the
++  // frames whose GUI the packer did not composite itself (CompQuadTimer)
++  if (m_dvStats.compQuadDrawn)
++    ioctls += StringUtils::Format("; the composite drawn {} times, GPU avg {:.2f} ms, longest {:.2f} ms",
++                                  m_dvStats.compQuadDrawn,
++                                  m_dvStats.compQuadSumMs / m_dvStats.compQuadDrawn,
++                                  m_dvStats.compQuadMaxMs);
++  // Hades: whether the ask holds over a whole span tells whether a gate turns it off after the
++  // first frames; what the pack got is told by dvbridge_render.c, to the journal
++  if (m_dvStats.guiHandedInPlace || m_dvStats.guiHandedTexture || m_dvStats.guiHandedNone)
++    ioctls += StringUtils::Format(
++        "; the GUI handed to the packer: in place {} frames, as a texture {} frames, not handed {}",
++        m_dvStats.guiHandedInPlace, m_dvStats.guiHandedTexture, m_dvStats.guiHandedNone);
+   m_dvLag.Reset();
+   // Hades: the GPU time of each pass, where advancedsettings.xml asks for it (dvpasstimes)
+   std::vector<dvbridge_pass_time> passes;
+diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.h b/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
+index 7fc710a..37177d8 100644
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
+@@ -757,6 +757,30 @@ private:
+   void Hdr10AdaptTimerMark(bool begin);
+   void Hdr10AdaptTimerCollect();
+   void Hdr10AdaptStatsLog(bool end);
++  //! Hades: the GPU time of the GUI pass of a frame (what the windows drew into the GUI FBO),
++  //! timed as the HDR10 adaptation is (Hdr10AdaptTimer), for the periodic statistics
++  struct GuiPassTimer
++  {
++    GLuint begin = 0, end = 0;
++    bool begun = false, pending = false;
++  };
++  std::array<GuiPassTimer, 4> m_guiPassTimers{};
++  unsigned int m_guiPassTimerIndex = 0;
++  bool m_guiPassTimersMade = false;
++  void GuiPassTimerMark(bool begin);
++  void GuiPassTimerCollect();
++  //! Hades: the GPU time of the composite of the GUI over the picture of a frame (the quads that
++  //! CompositeGui() draws into the picture), timed as the GUI pass is (GuiPassTimer)
++  struct CompQuadTimer
++  {
++    GLuint begin = 0, end = 0;
++    bool begun = false, pending = false;
++  };
++  std::array<CompQuadTimer, 4> m_compQuadTimers{};
++  unsigned int m_compQuadTimerIndex = 0;
++  bool m_compQuadTimersMade = false;
++  void CompQuadTimerMark(bool begin);
++  void CompQuadTimerCollect();
+   //! Hades: Dolby Vision sent as HDR10+ (DVConversionHDR10Plus()): what decides and what samples,
+   //! the picture being taken into the decisions, whether it is on in this video (-1: not decided
+   //! yet), the time of the last picture measured, frames for the log (render thread); a new video
+@@ -1022,6 +1046,21 @@ private:
+     unsigned int notShown = 0;
+     unsigned int withGui = 0;
+     unsigned int guiInPlace = 0; //!< Hades: ... of them with the GUI composited by the packer
++    //! Hades: the GUI passes of this span whose GPU time came back, and their GPU time together
++    //! and at the longest (the drawing of the windows into the GUI FBO: GuiPassTimer)
++    unsigned int guiPassDrawn = 0;
++    double guiPassSumMs = 0;
++    double guiPassMaxMs = 0;
++    //! Hades: the composites of this span whose GPU time came back, and their GPU time together
++    //! and at the longest (the quads over the picture: CompQuadTimer)
++    unsigned int compQuadDrawn = 0;
++    double compQuadSumMs = 0;
++    double compQuadMaxMs = 0;
++    //! Hades: the frames that carried something over the picture and asked the packer to composite
++    //! it in place, were handed the GUI texture without that ask, and were not handed it at all
++    unsigned int guiHandedInPlace = 0;
++    unsigned int guiHandedTexture = 0;
++    unsigned int guiHandedNone = 0;
+     unsigned int prepared = 0;
+     unsigned int flushes = 0;
+     unsigned int late = 0; //!< presentations that took more than 1.5 refresh periods
