@@ -1,7 +1,7 @@
 # DV L5 三态设置（automatic / direct / left aside）— 设计与实施文档
 
 日期: 2026-11-18
-状态: 已实施——补丁 `projects/Generic/patches/kodi/x86/kodi-9999-zzzg-dvbridge-the-level-5-offsets-of-a-video-as-a-setting-automatic-direct-or-left-aside.patch`（宿主序列化器三态测试绿灯；clean+unpack 全序列重放干净应用；待用户下次构建做整包编译与实机验证 §7）
+状态: 已实施并实机验证——补丁 `projects/Generic/patches/kodi/x86/kodi-9999-zzzg-dvbridge-the-level-5-offsets-of-a-video-as-a-setting-automatic-direct-or-left-aside.patch`（宿主序列化器三态测试绿灯；clean+unpack 全序列重放干净应用；整包编译+刷机后 §7 协议在 le 机 tf3 上三态全过，2026-11-18）
 影响面: kodi 补丁序列（`kodi-9999-zzzg-*`，见 §6），dvbridge 序列化器 + Kodi 设置管道
 关联: `kodi-9645-*`/`kodi-9646-*`（L5 自动纠错）、`kodi-9216-*`（cover 机制）、
 `kodi-9999-zzzf-*`（L5 cover 按边精确化）、`dvbridge_metadata.h` 序列化体系

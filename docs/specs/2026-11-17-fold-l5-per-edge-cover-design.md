@@ -137,9 +137,14 @@ L5 翻转次数减少（上边不再随字幕出现/消失翻转）；GUI 完全
 MEASURE 对照组（59.94 重负载即使未折叠也走 BARS，不可作对照）。
 
 读数: `hades.dv.l5sent`（左/右/上/下 实发 L5）与 `hades.dv.l5origin`
-（rpu / drawn）。两者是**自定义 info label**（注册于 hades.dv.* 列表）, 不是
-`Window(Home).Property` 窗口属性——JSON-RPC `XBMC.GetInfoLabels` 按名直接
-请求（如 `{"hades.dv.l5sent"}`）。
+（rpu / drawn / picture）。**勘误（2026-11-18 实测）**: 它们不是按名可直取的
+info label——按名请求返回空。实际是 `PublishPlayerInfo()` 发布到 **Home 窗口
+属性**，且**仅在播放器信息页可见时**（`WINDOW_DIALOG_PLAYER_PROCESS_INFO`
+或 `WINDOW_DIALOG_HADES_PLAYER_INFO`，或 "Check this setup" 运行期间）才刷新。
+正确读法: JSON-RPC `XBMC.GetInfoLabels` 用
+`Window(Home).Property(hades.dv.l5sent)` 语法；信息页关闭后属性冻结在最后一次
+发布的值（关闭瞬间的终值发布可捕获无遮挡状态）。注意 codecinfo 对话框自身会
+盖住黑边、触发 cover 摘边，无遮挡读数以关页终值为准。
 
 | 状态 | 预期 `l5sent` |
 | :--- | :--- |
