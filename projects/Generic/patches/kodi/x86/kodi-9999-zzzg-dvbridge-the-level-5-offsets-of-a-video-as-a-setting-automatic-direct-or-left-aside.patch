@@ -1,6 +1,6 @@
-From 0aacbef50faa83a449b439d56d985dafe08cd34b Mon Sep 17 00:00:00 2001
+From a5f5c413c8f4f103eab31bab72efc9406d75bdf0 Mon Sep 17 00:00:00 2001
 From: LibreELEC Hades <dev@localhost>
-Date: Wed, 18 Nov 2026 09:24:43 +0800
+Date: Wed, 18 Nov 2026 10:54:56 +0800
 Subject: [PATCH] dvbridge: the level 5 offsets of a video as a setting
  (automatic, direct, or left aside)
 
@@ -50,8 +50,8 @@ the bytes it always had.
  .../VideoPlayer/VideoRenderers/DVBridgeGLES.h |  4 ++
  xbmc/settings/Settings.h                      |  5 +++
  xbmc/windowing/gbm/DVEngineSettings.h         | 10 +++++
- .../windowing/gbm/WinSystemGbmGLESContext.cpp | 15 ++++++-
- 12 files changed, 192 insertions(+), 2 deletions(-)
+ .../windowing/gbm/WinSystemGbmGLESContext.cpp | 25 +++++++++--
+ 12 files changed, 199 insertions(+), 5 deletions(-)
 
 diff --git a/addons/resource.language.en_gb/resources/strings.po b/addons/resource.language.en_gb/resources/strings.po
 index 4a98ee7..a5a7606 100644
@@ -494,7 +494,7 @@ index 66bed2c..3adbc2c 100644
        text += "; the finer gamut mapping table where a picture is mapped (Low-Latency)";
      if (!PathKept() || !StepKept())
 diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
-index 86af58d..e3009c3 100644
+index 86af58d..f572358 100644
 --- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
 +++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
 @@ -617,7 +617,12 @@ void CWinSystemGbmGLESContext::PresentRender(bool rendered, bool videoLayer)
@@ -540,6 +540,23 @@ index 86af58d..e3009c3 100644
    dvbridge_l5check_video(&m_dvL5Check, layer.video);
    unsigned int bars[4], offsets[4];
    if (!m_dvFrame || skip || layer.layout != DVBRIDGE_P010 || m_dvL5MeasureFailed || !m_dvBridge ||
+@@ -8756,9 +8769,13 @@ void CWinSystemGbmGLESContext::PublishDVInfo(bool force)
+       info["hades.dv.notsent"] = held.empty() ? "none" : DescribeLevels(held);
+       info["hades.dv.l5sent"] = StringUtils::Format("{} / {} / {} / {}", d.sentL5[0],
+                                                     d.sentL5[1], d.sentL5[2], d.sentL5[3]);
+-      // the active area that the display is sent: from the RPU's L5, or made from the place of
+-      // the picture when the RPU has none
+-      info["hades.dv.l5origin"] = d.sentL5Drawn ? "drawn" : d.l5[0] >= 0 ? "rpu" : "picture";
++      // the active area that the display is sent: from the RPU's L5, made from the place of
++      // the picture when the RPU has none, or always the picture's place when the level 5
++      // offsets are left aside
++      info["hades.dv.l5origin"] = d.sentL5Drawn ? "drawn"
++                                  : m_dvEngine.l5 == DVBRIDGE_L5_IGNORE ? "picture"
++                                  : d.l5[0] >= 0 ? "rpu"
++                                                 : "picture";
+     }
+     // Hades: and what every level of the RPU says, with the table of the levels (the page of the
+     // Dolby Vision metadata of the player information). Low-Latency (transport 3) is mapped to the
 -- 
 2.43.0
 
