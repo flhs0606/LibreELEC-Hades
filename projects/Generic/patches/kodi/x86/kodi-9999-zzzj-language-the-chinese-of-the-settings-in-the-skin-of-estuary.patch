@@ -1,0 +1,856 @@
+--- a/addons/skin.estuary/language/resource.language.zh_cn/strings.po
++++ b/addons/skin.estuary/language/resource.language.zh_cn/strings.po
+@@ -811,6 +811,853 @@
+ msgid "Subtitle language"
+ msgstr "字幕语言"
+ 
++# Hades: the Chinese of the settings and of the playback dialogs, resolved
++# skin-first while Estuary is active (CGUIUtils::GetHadesString).
++
++msgctxt "#31690"
++msgid "GUI and subtitle brightness in HDR"
++msgstr "HDR 模式下的界面与字幕亮度"
++
++msgctxt "#31691"
++msgid "How bright the menus, the on-screen controls and the text subtitles are while the TV is in HDR or Dolby Vision. 100 % is the standard level (white at 203 nits). Lower it if they look too bright on your TV. The video itself never changes, and image subtitles made for HDR keep their own levels."
++msgstr "当电视处于 HDR 或杜比视界画质模式时，GUI 菜单、屏幕控件及文本字幕的显示亮度基准。100% 为国际标准电平（参考白点为 203 nits）。若在你的电视或投影仪上观感过于刺眼，可适当调低此数值。视频画面本身的高光动态完全不受影响；原生为 HDR 制作的图形字幕亦保持其原始亮度电平不变。"
++
++msgctxt "#31694"
++msgid "10-bit video at full depth (NVIDIA)"
++msgstr "以完整位深输出 10 位视频 (NVIDIA)"
++
++msgctxt "#31695"
++msgid "NVIDIA cards give Hades no 10-bit output, only 8-bit and 16-bit floating point. On (the default): HDR10, HLG and other 10-bit video go out through the 16-bit path, which avoids the visible banding of 8 bits in smooth gradients. Turn it off if such video shows wrong colours or a black screen: it then goes out at 8 bits. Dolby Vision is not affected. Takes effect from the next video."
++msgstr "Linux 下 NVIDIA 专有驱动未开放直接的 10-bit 整数输出管线，仅支持 8-bit 整数与 16-bit 浮点缓冲区。开启（默认）：HDR10、HLG 等 10 位视频将通过 16 位浮点高精度管线输出，从而有效消除 8-bit 下平滑渐变区域肉眼可见的色彩断层与色带。若在此类视频播放时遇到色彩反常或黑屏无画面，请关闭此项（关闭后回退至 8-bit 输出）。原生杜比视界不受影响。下一部视频生效。"
++
++msgctxt "#31696"
++msgid "Show Dolby Vision as HDR10 when the display cannot"
++msgstr "显示设备不支持时将杜比视界转换为 HDR10"
++
++msgctxt "#31697"
++msgid "When Dolby Vision cannot be sent as such (a display without it, or a TV input in its game mode), Hades rebuilds the video from its Dolby Vision data and sends it as HDR10. A Dolby Vision video whose base layer is no picture by itself (profile 5, as streaming services use) is always rebuilt, whatever this says: played as it is, its colours would be wrong. This setting is for the other Dolby Vision videos (profiles 7 and 8): while it is on, the settings below can have them rebuilt too; while it is off, they play their own HDR10 base picture. Where rebuilding fails, the video plays as Kodi plays it. On by default. Takes effect from the next video."
++msgstr "当无法原生输出杜比视界信号时（如连接了不支持杜比视界的 HDR 电视/投影仪，或电视处于游戏模式），Hades 会利用杜比视界动态元数据重构画面并转换为标准 HDR10 发送。对于基础层不具备独立色彩空间的杜比视界视频（如各流媒体平台采用的 Profile 5），无论该选项开启与否均必须在本地重构转换为 HDR10，否则直接播放会出现严重偏色（画面泛绿发紫）。此设置主要用于 Profile 7 和 Profile 8 规格：开启时，可通过下方细化选项对其进行动态重构；关闭时，直接按片源自带的 HDR10 基础层播放。若重构失败，将自动回退为 Kodi 原生播放逻辑。默认开启。下一部视频生效。"
++
++msgctxt "#31698"
++msgid "Also with an enhancement layer"
++msgstr "包含增强层 (Profile 7) 时同样重建"
++
++msgctxt "#31699"
++msgid "Also rebuild Dolby Vision videos that have an enhancement layer (profile 7, from UHD Blu-ray) and send them as HDR10, instead of playing their HDR10 picture. What is sent is the Dolby Vision master, which the display then adapts as plain HDR10: it is not always better than the HDR10 version of the disc, and it asks more of the graphics card. Off by default. Takes effect from the next video."
++msgstr "对于包含增强层（FEL / MEL）的杜比视界视频（UHD 蓝光原盘 Profile 7），同样将其基础层与增强层完整重构为杜比视界母版并作为 HDR10 输出，而非直接播放原盘自带的 HDR10 基础层。输出画面为杜比视界母版调色，后续由显示设备按普通 HDR10 自行映射：重构效果并不必然优于原盘自带的官方 HDR10 调色版本，且对 GPU 渲染算力要求显著提高。默认关闭。下一部视频生效。"
++
++msgctxt "#31701"
++msgid "Present frames a frame ahead"
++msgstr "提前一帧预渲染合成"
++
++msgctxt "#31702"
++msgid "For experts. Where the graphics card needs most of the time of a frame to prepare a Dolby Vision picture (typically an integrated one with 4K Blu-ray video), the next frame is prepared while the last one waits to be shown, so that a frame that takes a little longer is still shown in time. The menus over such a video react one frame later. When needed (the default): only where frames take half of a refresh or more. Always: wherever it can be done, to try it on any card. Never: if Dolby Vision video stutters or shows a broken picture with it. Takes effect from the next video."
++msgstr "专家选项。当显卡 GPU 单帧杜比视界合成渲染耗时较长（典型场景：低功耗核显播放 4K 蓝光杜比视界原盘）时，在前一帧等待垂直同步刷新的同时提前预渲染下一帧，确保偶发渲染耗时较长的帧仍能按时送显不丢帧。在此类视频播放时，叠加菜单的响应会产生 1 帧的延迟。按需启用（默认）：仅在单帧渲染耗时达到或超过垂直刷新周期的一半时自动触发；始终开启：无条件强制预渲染（可在各类显卡上尝试）；从不：彻底禁用（若开启后杜比视界反而产生掉帧微顿或画面撕裂，请选此项）。下一部视频生效。"
++
++msgctxt "#31714"
++msgid "Reference (BT.2390)"
++msgstr "参考基准 (BT.2390)"
++
++msgctxt "#31721"
++msgid "Decode both views of 3D Blu-ray video (MVC)"
++msgstr "解码 3D 蓝光视频双眼画面 (MVC)"
++
++msgctxt "#31722"
++msgid "A 3D Blu-ray stores a separate picture for each eye. Automatic (the default): Hades uses both pictures when your display says it can show 3D, and plays the normal 2D picture on any other display. Always: use both pictures on any display, for anaglyph glasses or for a 3D display that does not announce itself. Off: always 2D. Decoding both pictures is done by the processor. The display must be on when Hades starts. Takes effect from the next video."
++msgstr "3D 蓝光原生为左右眼分别独立存储两个视角的完整画面（MVC 编码）。自动（默认）：当显示设备在 EDID 中声明支持 3D 时，Hades 自动同时解码双眼画面并输出；在其他普通显示设备上则仅播放常规 2D 单眼画面；“始终开启”：在任何显示设备上均强制解码双眼画面，用于互补色 3D 红蓝眼镜观影，或适配未主动向系统声明 3D 能力的特殊 3D 显示设备；关闭：全局仅解码 2D 画面。解码双眼画面由 CPU 处理器负责。Hades 启动时显示设备必须处于开机唤醒状态。下一部视频生效。"
++
++msgctxt "#31724"
++msgid "The display that Hades shows itself on. Default chooses it as Hades does when it starts: an HDMI display that takes Dolby Vision first, then any HDMI display, then any other, and the computer's own screen last. A display on the same graphics card is used at once, and kept only if you say so. One on another graphics card is used when Hades starts again, which you can have it do there and then; that start asks whether to keep it."
++msgstr "选择 Hades 界面与视频渲染的主显示设备。“默认”遵循 Hades 启动时的自动选择策略：优先选择支持杜比视界的 HDMI 显示设备，其次选择任意 HDMI 设备，再次选择其他数字接口设备，最后选用电脑本机内置屏幕。若所选显示设备连接在同一张显卡上可立即生效，并在确认后保留；若连接在另一张独立显卡上，则需在重启 Hades 后生效（系统可立即提示重启，并在重启后确认是否保留设置）。"
++
++msgctxt "#31747"
++msgid "Fidelity step-down"
++msgstr "渲染保真度自动降阶 (防止卡顿)"
++
++msgctxt "#31748"
++msgid "For experts. Where the graphics card cannot prepare a Dolby Vision picture in the time of a frame, even drawn the faster way and a frame ahead (typically an integrated one with 4K Blu-ray video that has an enhancement layer), the picture can be rebuilt slightly less precisely, with a simpler filter on some planes. In test pictures most changed pixels differ by the smallest step of a 12-bit picture. Automatic (the default): one step at a time and only as far as the video needs to play smoothly; graphics that keep up always show the exact picture, and what is found is kept for this card and build. Never: always the exact picture, even if the video stutters. Level 1, 2, 3: that level on every frame, to measure what it saves; nothing measured is kept meanwhile. A level set in advancedsettings.xml (dvstepdown) comes first. Takes effect from the next video."
++msgstr "专家选项。当显卡 GPU 在一帧时限内无法完成杜比视界画面的合成渲染时（即便已启用了快速直绘且提前一帧预渲染，如使用低功耗核显播放带增强层的 4K 蓝光杜比视界原盘），允许轻微降低图层重构的滤波精度（对部分色彩平面采用更轻量的插值滤波器）。实测在测试图中绝大多数受影响像素的色差仅为 12-bit 色阶的 1 级变化。自动（默认）：以一阶为步进自适应降级，仅降低至视频不掉帧流畅播放所需的最低程度；算力充裕的 GPU 始终保持 100% 精确渲染，测得的最佳阶数将随显卡及版本自动记忆保存；从不：始终强制精确合成，即便视频卡顿丢帧；级别 1 / 2 / 3：强制每帧固定采用对应精度阶数，用于基准性能测试（此期间不保存自动测量结果）。advancedsettings.xml 中配置的 dvstepdown 级别优先。下一部视频生效。"
++
++msgctxt "#31755"
++msgid "Finer gamut mapping"
++msgstr "高精度色域映射表"
++
++msgctxt "#31756"
++msgid "For experts. Where a picture is mapped to the display or to SDR (Dolby Vision or HDR10 on an SDR output, Dolby Vision as HDR10 mapped to the display, Low-Latency), the colours that the display cannot show are mapped through a table. On: a table about three times as fine, closer to the exactly computed mapping (in test pictures the errors of 99.9 % of the pixels are about a third as large), which takes about 201 MB of graphics memory instead of 25 MB and longer to make when a video starts (a third of a second on a fast processor, a few seconds on a slow one). Where it cannot be made, the standard one is used; the log says which. Takes effect from the next video."
++msgstr "专家选项。当画面映射至显示设备或 SDR 时（如在 SDR 设备上输出杜比视界/HDR10、杜比视界转 HDR10 映射输出，或使用低延迟 LLDV），超出显示色域的色彩将通过查找表进行映射。开启：使用精细度约提升 3 倍的映射表，更贴近精确计算值（实测测试图中 99.9% 像素的色差缩小至约三分之一），但会占用约 201 MB 显存（默认约 25 MB），且视频起播时构建耗时稍长（高性能 CPU 约 0.3 秒，低性能设备需数秒）。若构建失败则自动回退至标准表并在日志中说明。下一部视频生效。"
++
++msgctxt "#31762"
++msgid "Dolby Vision output (this video)"
++msgstr "杜比视界输出方式 (本视频专属)"
++
++msgctxt "#31763"
++msgid "Native Dolby Vision"
++msgstr "原生杜比视界输出"
++
++msgctxt "#31764"
++msgid "As the settings say"
++msgstr "遵循全局设置"
++
++msgctxt "#31765"
++msgid "Dolby Vision as HDR10"
++msgstr "转换为 HDR10 输出"
++
++msgctxt "#31766"
++msgid "Dolby Vision as HDR10 ({} cd/m²)"
++msgstr "转换为 HDR10 输出 ({} cd/m²)"
++
++msgctxt "#31767"
++msgid "Without Dolby Vision (as Kodi plays it)"
++msgstr "禁用杜比视界 (按 Kodi 原生方式播放)"
++
++msgctxt "#31768"
++msgid "Not possible for this video now"
++msgstr "当前视频不支持此模式"
++
++msgctxt "#31770"
++msgid "Native Dolby Vision output"
++msgstr "原生杜比视界输出"
++
++msgctxt "#31771"
++msgid "Sends Dolby Vision videos to a TV that supports Dolby Vision (Standard, over HDMI), so the TV shows them in its Dolby Vision mode. On by default. Turn it off to play them as on a TV without Dolby Vision: rebuilt and sent as HDR10 where 'Show Dolby Vision as HDR10 when the display cannot' says so, otherwise with their HDR10 picture, as Kodi plays them. For a single video you can choose in the video settings of the player. Takes effect from the next video."
++msgstr "通过 HDMI 将杜比视界视频以原生标准格式（Standard / TV-led）输出至兼容的电视设备，由电视进入自身的杜比视界画质模式。默认开启。关闭后将按非杜比视界电视的方式处理：若开启了“显示设备不支持时将杜比视界转换为 HDR10”，则重构并输出为 HDR10；否则直接播放其 HDR10 基础层（与 Kodi 原生相同）。播放单部视频时亦可在播放器视频设置中单独选择。下一部视频生效。"
++
++msgctxt "#31772"
++msgid "Adapt Dolby Vision to my display (projectors)"
++msgstr "针对显示设备适配杜比视界 (投影仪/HDR10)"
++
++msgctxt "#31773"
++msgid "For projectors and HDR10 displays that adapt HDR10 poorly. Off (the default): the picture is sent as it was mastered and the display adapts it. To this display: Hades adapts the picture itself, shot by shot, to the peak brightness and colours set below, and tells the display that the picture now fits it. While 'Show Dolby Vision as HDR10 when the display cannot' is on, every Dolby Vision video that is not sent natively is then sent this way. Turn off the display's own dynamic tone mapping for HDR10. The studio's trims are not applied. Takes effect from the next video."
++msgstr "专为 HDR10 色调映射表现较弱的投影仪及普通 HDR10 显示设备设计。关闭（默认）：按母版原始电平直接输出，由显示设备自行处理映射；“适配至当前显示设备”：由 Hades 结合杜比视界动态元数据，逐场景将画面精准色调映射至下方所设定的设备峰值亮度与色域，并向显示设备标记适配完成。“显示设备不支持时将杜比视界转换为 HDR10”开启期间，所有非原生输出的杜比视界视频均通过此方式映射输出。使用此功能时，建议关闭显示设备自带的 HDR10 动态色调映射（DTM）。工作室的调色精调参数（Trims）在此模式下不予应用。下一部视频生效。"
++
++msgctxt "#31774"
++msgid "Off (as mastered)"
++msgstr "关闭 (按原始母版)"
++
++msgctxt "#31775"
++msgid "To this display"
++msgstr "适配至当前显示设备"
++
++msgctxt "#31776"
++msgid "Peak brightness of the display"
++msgstr "显示设备的峰值亮度"
++
++msgctxt "#31777"
++msgid "The brightest white your display shows in HDR, in nits (cd/m²), as measured or as its specification says: about 50 to 300 for a projector, 400 to 4000 for a TV. Nothing brighter is sent."
++msgstr "显示设备在 HDR 模式下能呈现的最大高光峰值亮度，单位为尼特（cd/m²），请根据校色实测或硬件标称规格填入：投影仪通常约为 50 至 300，电视机通常为 400 至 4000。高于此亮度的高光信息将在此曲线内完成滚降映射。"
++
++msgctxt "#31779"
++msgid "Colour gamut of the display"
++msgstr "显示设备的色域"
++
++msgctxt "#31780"
++msgid "The colours your display can show. Colours of the picture outside them are brought inside gently (perceptual gamut mapping) instead of being clipped. DCI-P3 (D65) suits most HDR projectors and TVs."
++msgstr "显示设备实际能够覆盖的色彩空间。片源中超出该色域的色彩将通过感知色域映射柔和过渡至目标色域内，而非生硬裁切溢出。DCI-P3 (D65) 适合绝大多数 HDR 投影仪和电视设备。"
++
++msgctxt "#31782"
++msgid "DCI-P3 (D65)"
++msgstr "DCI-P3 (D65)"
++
++msgctxt "#31784"
++msgid "Tone mapping curve"
++msgstr "色调映射曲线"
++
++msgctxt "#31785"
++msgid "How the brightest parts are squeezed to fit your display. BT.2390: the curve of the ITU-R report: everything up to its knee, a little below the display's peak, stays as mastered, and only what is brighter is compressed. BT.2390, libplacebo's knee: the same curve with its knee much lower, as libplacebo sets it by default: the middle tones come out a little darker and the highlights keep more of their detail. Spline: libplacebo's own default curve, which also darkens the middle tones and the shadows of a shot a little to keep its contrast, more the brighter the shot is than the display."
++msgstr "设定高光超出显示设备亮度时的压缩曲线。BT.2390：遵循 ITU-R BT.2390 建议书标准曲线，拐点（Knee）以下保持原始母版电平不变，仅对高于拐点的高光部分进行平滑滚降；BT.2390 (libplacebo 拐点)：同样遵循 BT.2390 算法，但采用 libplacebo 默认的较低拐点，中调略微收敛，可保留更多的高光层次与细节；Spline 样条曲线：libplacebo 自带的默认样条曲线，在高动态镜头下略微加深暗部与中调以保住画面对比度，且镜头越亮对比度调整越显著。"
++
++msgctxt "#31786"
++msgid "Spline (libplacebo)"
++msgstr "Spline 样条曲线 (libplacebo)"
++
++msgctxt "#31787"
++msgid "BT.2390 (ITU-R)"
++msgstr "BT.2390 曲线 (ITU-R)"
++
++msgctxt "#31900"
++msgid "Dolby Vision engine"
++msgstr "杜比视界处理引擎"
++
++msgctxt "#31901"
++msgid "Drawing path"
++msgstr "渲染绘制路径"
++
++msgctxt "#31902"
++msgid "For experts. How a Dolby Vision frame without menus or subtitles is drawn: directly into the output, or composed first into a full-precision picture and then packed. Both give the same picture (measured: one code of 4096 apart in under 0.1 % of the pixels). Automatic (the default): Hades measures each picture format on your graphics card and uses the faster way, and remembers what it found for this card and build. Always direct, Always composed: to measure each way; nothing measured is kept meanwhile. Frames with subtitles, the player bar or other elements, and pictures that do not fill the screen, are always composed. Takes effect from the next video."
++msgstr "专家选项。决定无菜单或字幕叠加时的杜比视界纯净视频帧的渲染管线：直接渲染至最终输出缓冲区（Direct），还是先离屏合成为全精度中间画面再统一打包（Composed）。两者呈现画面完全一致（实测不到 0.1% 的像素在 4096 色阶中仅相差 1 级）。自动（默认）：Hades 自动针对当前 GPU 性能测试每种视频规格的最佳渲染路径，自动选取耗时更短的路径并记录；始终直绘 / 始终合成：强制锁定特定渲染路径，用于排查与性能评测（此期间不覆盖自动测试结果）。若画面中包含字幕、播放进度条等 OSD 叠加元素，或画面未填满屏幕黑边时，将自动强制采用合成路径。下一部视频生效。"
++
++msgctxt "#31903"
++msgid "Always direct"
++msgstr "始终直绘 (Direct)"
++
++msgctxt "#31904"
++msgid "Always composed"
++msgstr "始终离屏合成 (Composed)"
++
++msgctxt "#31905"
++msgid "When needed"
++msgstr "按需启用"
++
++msgctxt "#31906"
++msgid "Level 1"
++msgstr "级别 1"
++
++msgctxt "#31907"
++msgid "Level 2"
++msgstr "级别 2"
++
++msgctxt "#31908"
++msgid "Level 3"
++msgstr "级别 3"
++
++msgctxt "#31909"
++msgid "Composition"
++msgstr "图层合成与重构算法"
++
++msgctxt "#31910"
++msgid "For experts. How the picture is rebuilt from its layers and metadata. As the specification (the default): as the composer of ETSI GS CCM 001 does it. libplacebo's reshaping: as libplacebo does it by itself, to compare the two on a display (dvccmcomposer set to false in advancedsettings.xml chooses it too). A picture outside what the specification covers is rebuilt by libplacebo's reshaping either way. Nothing measured is kept while libplacebo's reshaping is chosen. Takes effect from the next video."
++msgstr "专家选项。控制视频如何结合增强层（EL）与动态元数据重构画面。“遵循标准规范”（默认）：严格按照 ETSI GS CCM 001 官方合成器规范算法进行重构；“libplacebo 重构算法”：采用 libplacebo 内部开源重构算法，用于画质对比评估（在 advancedsettings.xml 中将 dvccmcomposer 设为 false 亦可切换至此模式）。对于官方规范未涵盖的非标片源，两种模式下均自动由 libplacebo 算法托管处理。在选择“libplacebo 重构算法”期间不保存自动性能测试记录。下一部视频生效。"
++
++msgctxt "#31911"
++msgid "As the specification"
++msgstr "遵循标准规范 (ETSI CCM 001)"
++
++msgctxt "#31912"
++msgid "libplacebo's reshaping"
++msgstr "libplacebo 重构算法"
++
++msgctxt "#31913"
++msgid "Keep repeated pictures"
++msgstr "重复帧免重绘输出"
++
++msgctxt "#31914"
++msgid "For experts. While a native Dolby Vision picture stays on the screen for more than one refresh (film at 60 Hz, a paused video), it is kept there instead of being drawn and sent again: the display gets the same bytes, and the graphics card does less work. Off: every refresh is drawn again (dvkeeprepeats set to false in advancedsettings.xml turns it off too). Takes effect from the next video."
++msgstr "专家选项。当原生杜比视界同一帧画面在屏幕上停留显示跨越多次垂直刷新周期时（例如以 60 Hz 刷新率播放 24 fps 电影、或视频暂停时），保持帧缓冲区直接复用该帧输出，避免重复重绘重发：显示设备接收相同的色彩流字节，同时显著降低显卡负载。关闭：每个垂直刷新周期均强制全量重绘重构（在 advancedsettings.xml 中将 dvkeeprepeats 设为 false 亦可关闭）。下一部视频生效。"
++
++msgctxt "#31920"
++msgid "Dolby Vision for TVs in game mode (Low-Latency)"
++msgstr "游戏模式电视的杜比视界 (低延迟 LLDV)"
++
++msgctxt "#31921"
++msgid "Some TV inputs offer Dolby Vision only as Low-Latency (their game mode). With this on, Hades sends Dolby Vision that way and does the tone mapping to your display itself, with its own method and not Dolby's. Off by default: such an input then plays the video as HDR10, and Hades shows a notice. On some TVs, turning off the game mode brings back Dolby Vision Standard. A TV input that takes Standard keeps it. Takes effect from the next video."
++msgstr "部分电视在特定 HDMI 接口或游戏画质模式下仅支持低延迟杜比视界（Player-led / LLDV）。开启后，Hades 将以 LLDV 模式向电视输出杜比视界，并由 Hades 本地完成针对显示设备的色调映射（采用 Hades 自身的映射算法，而非杜比官方闭源算法）。默认关闭：关闭时在此类接口上会将视频转换为 HDR10 播放并弹出提示。部分电视在关闭“游戏模式”后可恢复标准杜比视界（Standard / TV-led）。支持标准杜比视界的接口不受影响。下一部视频生效。"
++
++msgctxt "#31923"
++msgid "Dolby Vision for older TVs (HDMI 1.4b)"
++msgstr "早期电视兼容模式 (HDMI 1.4b 杜比视界)"
++
++msgctxt "#31924"
++msgid "Some TVs from 2016 (LG OLED among them) and a few later ones ask for an older way of signalling Dolby Vision. With this on, Hades sends Dolby Vision to this TV that way instead of HDR10. Whether your TV accepts it cannot be checked from here: if the colours look wrong, turn this off. Shown only for a TV that asks for that signalling. Off by default. Takes effect from the next video."
++msgstr "2016 年前后的部分早期电视（包括 LG OLED 早期型号）需要通过较早期的 HDMI 1.4b 封装信令识别杜比视界。开启后，Hades 将改用该早期信令格式向电视发送杜比视界，避免被识别为普通 HDR10。电视实际能否正常接收无法事先自动探测：若开启后画面色彩反常，请关闭此项。该选项仅在检测到电视请求该信令时才会显示。默认关闭。下一部视频生效。"
++
++msgctxt "#31960"
++msgid "Allow passthrough on live TV and streams"
++msgstr "允许电视直播与网络流媒体音频直通"
++
++msgctxt "#31961"
++msgid "On (the default): the sound of live TV and live streams is passed through like that of any other video, Dolby Atmos included. Hades follows the clock of a live source by slowing its own a little, and decoded sound with it, which it cannot do with sound that is passed through: when the clock of the source runs slower than that of your device, playback may stop now and then for about a second to refill its buffer. Off: the sound of live sources is decoded to PCM, as Kodi does it, without Atmos. Takes effect from the next video."
++msgstr "开启（默认）：电视直播和网络实时流媒体的音频与常规点播视频一样支持透传直通，包括 Dolby Atmos 全景声。播放网络直播流时，Hades 会微调内部时钟以同步直播源时钟；但直通音频由外部功放时钟独立驱动无法微调时序：因此当直播推流时钟落后于本机时钟时，可能偶尔会出现约 1 秒的短暂音频重缓冲卡顿。关闭：直播音频将统一在本地解码为多声道 PCM 输出（与 Kodi 原生一致），但无法透传 Dolby Atmos 元数据。下一部视频生效。"
++
++msgctxt "#31980"
++msgid "HDR where RGB would be 8-bit"
++msgstr "RGB 仅 8 位时以更高位深输出 HDR"
++
++msgctxt "#31981"
++msgid "At 4K above 30 Hz, HDMI 2.0 links (and HDMI 2.1 ones that the graphics card drives without full speed) carry only RGB at 8 bits, so HDR10 and HLG lose two bits. This sends HDR in a format that carries 10 bits or more (YCbCr): on AMD graphics in 4:2:2 at 12 bits where the card and the TV both take it, otherwise in 4:2:0 where the TV takes that. The video is 4:2:0 already, so nothing of it is lost; only menus and subtitles drawn over it have less colour detail. Dolby Vision is not affected. Takes effect from the next video."
++msgstr "在 4K 超高清且刷新率高于 30 Hz 时，HDMI 2.0 带宽（以及未以全速运行的 HDMI 2.1 链路）在 RGB 下仅能承载 8-bit 色深，导致 HDR10 与 HLG 损失 2 位色彩精度。开启后，HDR 信号将改用支持 10-bit 及以上的 YCbCr 格式输出：在 AMD 显卡及兼容电视上优先采用 4:2:2 12-bit，若设备不支持则降至 4:2:0 10-bit。视频内容原生通常即为 4:2:0 采样，因而片源画质完全无损；仅叠加于视频之上的菜单与字幕色彩边缘分辨率会稍有减半。杜比视界不受影响。下一部视频生效。"
++
++msgctxt "#31982"
++msgid "YCbCr, 10 bits or more"
++msgstr "YCbCr 10 位及以上"
++
++msgctxt "#31983"
++msgid "8-bit RGB"
++msgstr "8 位 RGB"
++
++msgctxt "#32000"
++msgid "Transport"
++msgstr "杜比视界传输封装格式"
++
++msgctxt "#32001"
++msgid "For experts. How native Dolby Vision is sent to the TV. As composed, the default: the picture the composer of ETSI GS CCM 001 builds, exactly as it is, in the colour representation the video describes (YCbCr, or IPT for profile 5). As licensed players send (IPT): profiles 7 and 8 converted to IPT-PQ-c2, as licensed players are reported to send them (where a graphics chip cannot keep up, it goes out as composed). It measured a little less faithful: the TV gives the right pixel of each pair the colour worked out for the left one, which shows where the light changes sharply inside a strong colour. Converted to BT.2020: the picture is rebuilt in RGB and converted to BT.2020 YCbCr, as earlier builds sent it, to compare on a display. Menus or subtitles drawn over the video are converted into the representation that is sent. What the step-down finds is not kept while Converted to BT.2020 is chosen. Takes effect from the next video."
++msgstr "专家选项。决定原生标准杜比视界（RGB 隧道）打包发往电视的底层色彩封装格式。“按规范合成输出”（默认）：直接采用遵循 ETSI GS CCM 001 规范合成器构建的画面输出，保持原始封装形态，色彩空间遵循视频描述（YCbCr，或 Profile 5 的 IPT）；“兼容商业播放器格式 (IPT)”：将 Profile 7 和 Profile 8 转换为 IPT-PQ-c2 封装发送（商业授权独立播放器普遍采用此封装；若 GPU 算力不足则回退至规范合成输出），但实测其色度保真度略有损耗（电视会将每对像素的右侧像素直接复用左侧像素的计算颜色，高饱和色块内光线陡变边缘可见）；“转换为 BT.2020”：将画面先重建为 RGB，再重编码转换为 BT.2020 YCbCr 发送（与早期版本传输行为一致，供发烧友对比画质）。叠加的菜单与字幕会自动匹配对应色彩空间。在选择“转换为 BT.2020”期间，不保留保真降阶的测量记录。下一部视频生效。"
++
++msgctxt "#32002"
++msgid "As composed"
++msgstr "按规范合成输出 (As composed)"
++
++msgctxt "#32003"
++msgid "Converted to BT.2020"
++msgstr "转换为 BT.2020 YCbCr"
++
++msgctxt "#32006"
++msgid "As licensed players send (IPT)"
++msgstr "兼容商业播放器格式 (IPT)"
++
++msgctxt "#32094"
++msgid "Dolby Vision: ignore the studio's fine-tuning (trims)"
++msgstr "杜比视界：忽略工作室调色精调参数 (Trims)"
++
++msgctxt "#32095"
++msgid "Dolby Vision films carry the colourist's trims: small corrections that say how each scene should look on a display of a few given peak brightnesses (100, 600 or 1000 nits, for instance). When your TV does Dolby Vision itself (native output), the TV applies the trims on its own, and this decides whether they are sent to it. Off (the usual): they are sent. On: they are not; turn it on only if the TV shows washed-out blacks or wrong colours because of them, as some projectors do. Where LibreELEC Hades adjusts Dolby Vision to your display itself (shown as HDR10 adjusted to the display, as SDR, or in Low-Latency), it applies the trims only if \"Dolby Vision: apply the trims when adjusting to your display\" is on, and never while this is on. Applies from the next video."
++msgstr "杜比视界影片通常包含调色师针对不同目标显示设备制作的精调参数（Trims）：用于指导每个场景在特定峰值亮度（如 100、600 或 1000 nits）的显示设备上的微调呈现。当采用原生标准杜比视界（TV-led）直出时，由电视自身负责解析应用这些精调参数，此选项决定是否向电视发送精调元数据。关闭（常规推荐）：正常向电视发送精调数据；开启：彻底剔除并拦截精调参数（仅在电视或投影仪因解析精调数据导致暗部发灰浮白、或色彩失真时建议开启）。当由 LibreELEC Hades 本地进行色调映射时（转换为适配显示设备的 HDR10、SDR 或低延迟 LLDV），仅在开启“杜比视界：本地映射时应用精调参数 (Trims)”时才会处理精调，且本项开启期间绝不处理。下一部视频生效。"
++
++msgctxt "#32096"
++msgid "Play HDR10+ videos as Dolby Vision"
++msgstr "将 HDR10+ 视频转换为杜比视界输出"
++
++msgctxt "#32097"
++msgid "For a TV that supports Dolby Vision but not HDR10+. An HDR10+ video is sent as Dolby Vision, with metadata made from its own HDR10+ data, scene by scene (the peak and the average brightness of each scene). The picture is the same HDR10 picture. What does not carry over from HDR10+: the tone curve and the target display that the studio chose, its saturation weight and its windows; in Dolby Vision Low-Latency (game mode), where Hades adapts each picture to the TV itself, the studio's tone curve is applied. Dolby Vision videos, HDR10 videos without HDR10+ and displays that take HDR10+ are not affected. Off by default. Takes effect from the next video."
++msgstr "专为支持杜比视界、但不支持 HDR10+ 的电视设备（如 LG、索尼电视）设计。将 HDR10+ 视频封装转换为杜比视界信号输出，其中动态元数据由 HDR10+ 原生逐场景数据实时换算生成（提取各场景的峰值与平均亮度信息）。视频基础画面保持原生 HDR10 画质不变。无法由 HDR10+ 映射继承的信息包括：工作室专属色调曲线、目标显示器规格、饱和度权重及局部窗口区域；但在低延迟杜比视界（LLDV / 游戏模式，即由 Hades 本地映射）下，工作室的色调曲线将得到应用。原生杜比视界视频、普通 HDR10 视频以及原生支持 HDR10+ 的电视不受影响。默认关闭。下一部视频生效。"
++
++msgctxt "#32098"
++msgid "Make HDR10 videos Dolby Vision (measured)"
++msgstr "实时测量并生成杜比视界 (HDR10)"
++
++msgctxt "#32099"
++msgid "For a TV that supports Dolby Vision. An HDR10 video has no Dolby Vision data of its own, so Hades measures the picture as it plays (the peak, the average and the darkest level of each scene, and the black bars) and sends that as Dolby Vision metadata. These are not the studio's data: nothing of a colourist's grade (trims) is added. Scene cuts are found from the picture: a few are missed, a few are found where there is none, and some are found a picture late. The picture itself is the same HDR10 picture. Dolby Vision and HDR10+ videos are not affected. Off by default. Takes effect from the next video."
++msgstr "专为支持杜比视界的电视设备设计。常规 HDR10 静态视频本身不包含杜比视界动态元数据，开启后 Hades 将在视频播放时对画面进行实时高精度测算（计算每个场景的峰值高光、平均亮度、最暗黑电平以及画幅黑边），并将其作为杜比视界动态元数据实时下发。此数据系算法实时测算得出，并非片方官方母版元数据，亦不包含调色师的专属精调（Trims）。场景转场切换由图像识别算法自动分析：可能会有极个别场景漏判、误判或滞后 1 帧识别。底层基础画面依然是原汁原味的 HDR10 画面。原生杜比视界与 HDR10+ 视频不受影响。默认关闭。下一部视频生效。"
++
++msgctxt "#32100"
++msgid "Send it as HDR10+ where the display takes it"
++msgstr "显示设备支持时转换为 HDR10+ 输出"
++
++msgctxt "#32101"
++msgid "For a display that takes HDR10+ but not Dolby Vision, as many Samsung TVs. A Dolby Vision video rebuilt as HDR10 is sent as HDR10+, with scene-by-scene metadata that Hades measures from the rebuilt picture, so that the display adapts each scene as it does with an HDR10+ film. These data are not the studio's and no tone curve is sent: the display makes its own, and may show a scene differently from plain HDR10. Profile 8.1 is then rebuilt too. Not used while the picture is mapped to the display. For one video, the video settings of the player can send it as plain HDR10 or as HDR10+. Off by default. Takes effect from the next video."
++msgstr "专为支持 HDR10+、但不支持杜比视界的显示设备（如三星全系列电视）设计。当杜比视界视频被重构为 HDR10 基础信号时，附带由 Hades 针对重构画面逐场景实时测得的动态元数据，封装为 HDR10+ 格式输出，使电视能够按照 HDR10+ 动态映射规范进行逐场景画质适配。该动态元数据由算法测算生成，且不包含自定义色调曲线：显示设备将应用自身的 HDR10+ 色调曲线进行映射，观感可能与常规静态 HDR10 略有不同。在此模式下 Profile 8.1 亦会被重构转换。当画面已在本地映射至显示设备时此项不生效。播放单个视频时，可在播放器视频设置中单独指定输出为普通 HDR10 或 HDR10+。默认关闭。下一部视频生效。"
++
++msgctxt "#32110"
++msgid "Limit PCM channels to what the display declares"
++msgstr "限制 PCM 输出声道数不超过显示设备声明值"
++
++msgctxt "#32111"
++msgid "On (the default): sound that Hades decodes goes out in no more channels of PCM than your display says it takes (read from its EDID), whatever 'Number of channels' says. A TV that declares stereo gets stereo, and one that declares 6 channels gets 5.1. This avoids silence from multichannel tracks that the display cannot take. Off: decoded sound follows 'Number of channels' alone, for a display that takes more channels than it declares. Passthrough is not affected."
++msgstr "开启（默认）：Hades 本地解码后的多声道音频输出将严格受限于显示设备 EDID 所声明的最大 PCM 声道数，无论设置中的“声道数”设定为何值。声明为双声道的电视接收立体声，声明为 6 声道的接收 5.1 PCM。这可防止因输出超出显示设备承载能力的声道数而导致静音无声。关闭：解码音频将完全遵从“声道数”设定输出，供实际支持多于声明声道数的显示设备使用。音频透传直通不受影响。"
++
++msgctxt "#32112"
++msgid "Surround as Dolby when the display takes only stereo PCM"
++msgstr "显示设备仅支持双声道 PCM 时以杜比环绕声输出"
++
++msgctxt "#32113"
++msgid "For a display that declares PCM in 2 channels only, but takes Dolby Digital Plus or Dolby Digital in more. A surround track that Hades decodes (DTS where the display does not take it, or any track whose passthrough is off) is then encoded to Dolby Digital Plus 5.1 (Dolby Digital 5.1 where the display does not declare Dolby Digital Plus, its passthrough is off or the output does not take its rate) and passed through, so the sound stays surround. The encoding is lossy (768 kb/s; 640 kb/s for Dolby Digital), and 7.1 is mixed down to 5.1. Off, or where neither can be sent: it is mixed down to stereo. Needs passthrough and Dolby Digital passthrough on."
++msgstr "专为仅声明支持双声道 PCM、但额外支持多声道 Dolby Digital Plus (E-AC-3) 或 Dolby Digital (AC-3) 的电视/回音壁设备设计。当播放由 Hades 本地解码的环绕声音轨时（如设备不支持的 DTS，或关闭了直通的多声道音轨），将其动态实时重编码为 Dolby Digital Plus 5.1（码率 768 kb/s）透传直通；若设备不支持 E-AC-3 或直通受限，则编码为 Dolby Digital 5.1（码率 640 kb/s），使电视保留 5.1 环绕声体验。7.1 音轨将先下混至 5.1。关闭此选项，或设备两者均不支持时，将直接下混为双声道立体声。前提需开启“允许音频直通”及对应的“杜比数字直通”。"
++
++msgctxt "#32114"
++msgid "HDR output depth (NVIDIA)"
++msgstr "HDR 输出色彩位深 (NVIDIA)"
++
++msgctxt "#32115"
++msgid "How many bits per colour the graphics card sends for HDR10 and HLG. Automatic (the default): as many as the TV and the picture mode allow, 10 or 12. 8 bits: never more than 8; some TVs with an 8-bit panel show less banding that way. SDR and native Dolby Vision are not affected. Takes effect from the next video."
++msgstr "NVIDIA 显卡在输出 HDR10 与 HLG 时每个色彩通道的位深。自动（默认）：根据电视及显示模式的最大支持能力协商输出 10-bit 或 12-bit；8 位：强制限制不超过 8-bit 输出（部分搭载 8-bit 面板抖动的电视在此设置下色带断层更少）。SDR 与原生杜比视界输出不受影响。下一部视频生效。"
++
++msgctxt "#32116"
++msgid "Automatic"
++msgstr "自动"
++
++msgctxt "#32117"
++msgid "8 bits"
++msgstr "8 位"
++
++msgctxt "#32190"
++msgid "Dolby Vision for the menus"
++msgstr "GUI 菜单界面常驻杜比视界模式"
++
++msgctxt "#32191"
++msgid "Keeps the TV in Dolby Vision while the menus are on screen, so a Dolby Vision video starts, and goes back to the menus, without the TV switching its picture mode. Any other video (SDR, HDR10, HDR10+, HLG) makes the TV switch once more at its start and once more at its end. The menus are sent at a fixed brightness (the white of 'GUI and subtitle brightness in HDR') and the TV shows them in its Dolby Vision picture mode, which may look different from its SDR one. While the menus change, the graphics chip converts each frame. Shown only for a TV that takes Dolby Vision, with the menus at 3840x2160. When you turn it on, a question asks you to confirm that the picture is right; unless you answer Yes within 15 seconds it goes back to Off by itself, so a black picture needs no remote to get out of it. Off by default."
++msgstr "在停留在主界面及菜单期间使电视常驻保持在杜比视界画质模式，从而杜比视界视频起播与返回菜单时无需经历 HDMI 重新握手黑屏与图像模式切换。其他非杜比视界格式（SDR、HDR10、HDR10+、HLG）起播与退出时仍会正常触发一次模式切换。GUI 菜单将以固定标准亮度发送（对应“HDR 模式下的界面与字幕亮度”中的参考白点），电视将在其杜比视界模式下呈现菜单（视觉色彩可能与纯 SDR 模式略有差异）。菜单动画与画面变化期间由 GPU 逐帧实时色彩转换。该选项仅在检测到电视支持杜比视界且系统界面分辨率设为 3840x2160 时方可启用。开启时会弹出 15 秒倒计时确认对话框，若未在 15 秒内确认“是”将自动回滚关闭，防止误开黑屏导致无法操作。默认关闭。"
++
++msgctxt "#32245"
++msgid "Allow whole-number multiples of the frame rate (e.g. 24 fps at 120 Hz)"
++msgstr "允许刷新率为帧率的整数倍（如 24 fps 匹配 120 Hz）"
++
++msgctxt "#32246"
++msgid "When the whitelist has no mode at the exact frame rate of a video, the display stays in its current mode if that mode is on the whitelist and its refresh rate is a whole-number multiple of the frame rate (23.976 fps at 119.88 Hz, 24 fps at 120 Hz, 25 fps at 100 Hz): every picture is shown the same number of times, without judder and without a change of mode. A whitelisted mode at the exact rate is still taken where there is one. Only for SDR and HDR10 video known to be progressive: never for Dolby Vision, HDR10+, HLG or interlaced video. HDR10 stays only where the graphics driver has said that the link carries 10 bits in that mode (most Intel and AMD graphics answer before the video; NVIDIA once HDR10 has gone out in that mode): otherwise the mode changes as without this setting."
++msgstr "当白名单中没有与视频精确帧率匹配的模式时，若当前显示模式在白名单内且其刷新率为视频帧率的整数倍（如 23.976 fps 匹配 119.88 Hz、24 fps 匹配 120 Hz、25 fps 匹配 100 Hz），则保持当前显示模式不切换：每帧画面显示相同倍数的次数，既无画面抖动，又免去模式切换黑屏。若白名单中有精确匹配的帧率模式仍优先选用。仅适用于确认逐行的 SDR 与 HDR10 视频：绝不用于杜比视界、HDR10+、HLG 或隔行视频。HDR10 仅在显卡驱动已确认该模式支持 10-bit 输出时才保持当前模式（多数 Intel 和 AMD 显卡起播前即可报告；NVIDIA 需先在该模式输出过 HDR10 才能确认）：否则依然正常切换模式。"
++
++msgctxt "#32250"
++msgid "Dolby Vision: new tone mapping (v4.0)"
++msgstr "杜比视界：新版色调映射 (v4.0)"
++
++msgctxt "#32251"
++msgid "Dolby Vision data has an older (2.9) and a newer (4.0) tone-mapping part, and TVs with newer processing (display management 4) use the 4.0 part. As in the video (the default): sends exactly what the studio made. Add v4.0 where the video has none: adds a neutral 4.0 part, so that a newer TV maps with its newer method; this changes the picture, which is then no longer the one the film was graded for. Automatic: the same, decided once per video, only for a video that has no 4.0 part and was mastered brighter than your TV. Automatic 2: the same, only for a video with no studio trims. With either, if the video later brings what it was decided without, it goes on as it is. Version 2.9 only: leaves the 4.0 part out, for a TV that shows a black or wrong picture with it. Takes effect from the next video."
++msgstr "杜比视界元数据包含较早期的 2.9 版本与较新的 4.0 版本两套色调映射规范；支持新一代显示管理（Display Management v4.0 / CM v4.0）的电视将优先采用 4.0 元数据。“遵循视频原始设定”（默认）：严格透传发送片源母版中包含的原始元数据；“视频缺少时自动补充 v4.0”：自动生成并注入中性的 4.0 元数据块，使新版电视能够调用其最新的色调映射算法进行处理（这会改变最终呈现画面，使其不同于早期母版制作时的基准观感）；“自动：针对高亮母版补充 v4.0”：在起播时根据片源评估一次，仅针对未包含 4.0 元数据且母版制作峰值亮度显著高于当前电视的视频自动补充；“自动：无精调参数时补充 v4.0”：同理，仅在片源缺少调色精调数据（Trims）时自动补充；“仅使用 2.9 版本元数据”：彻底剔除 4.0 元数据，专门解决部分老款杜比视界电视在接收 4.0 元数据时黑屏或画质错乱的问题。下一部视频生效。"
++
++msgctxt "#32252"
++msgid "As in the video"
++msgstr "遵循视频原始设定"
++
++msgctxt "#32253"
++msgid "Add v4.0 where the video has none"
++msgstr "视频缺少时自动补充 v4.0"
++
++msgctxt "#32254"
++msgid "Automatic: add v4.0 for bright masters"
++msgstr "自动：针对高亮母版补充 v4.0"
++
++msgctxt "#32255"
++msgid "Version 2.9 only"
++msgstr "仅使用 2.9 版本元数据"
++
++msgctxt "#32256"
++msgid "Low-Latency also where the TV takes Standard"
++msgstr "电视支持标准模式时仍强制使用低延迟模式 (LLDV)"
++
++msgctxt "#32257"
++msgid "Sends Low-Latency also to TV inputs that accept Dolby Vision Standard, so that Hades does the tone mapping instead of the TV. For a projector, or a display whose own Dolby Vision mapping you do not want. This changes the picture: the TV's mapping is the one the film was graded for. Takes effect from the next video."
++msgstr "即便电视的 HDMI 接口原生支持标准杜比视界（Standard / TV-led），仍强制以低延迟杜比视界（Player-led / LLDV）格式发送，由 Hades 本地播放器负责画面的色调映射计算，而非交给电视处理。专为杜比视界投影仪、或电视自身杜比视界映射调校不佳的场景设计。此设置会改变画面观感（官方母版配光通常基于电视原生映射校准）。下一部视频生效。"
++
++msgctxt "#32258"
++msgid "Low-Latency: peak and colours set here"
++msgstr "低延迟模式：使用自定义峰值亮度与色域"
++
++msgctxt "#32259"
++msgid "Maps Low-Latency video to the peak brightness and colours set below instead of the ones your display announces. For a display that announces more or less than it really shows, such as a projector or a display you have measured. Takes effect from the next video."
++msgstr "在低延迟杜比视界（LLDV）模式下，强制按照下方手动设置的峰值亮度与色域进行色调映射，而非采用显示设备在 EDID 中声明的标称参数。专为 EDID 虚标、实际显示能力与标称严重不符的设备（如投影仪，或已通过校色仪实测得到准确硬件参数的显示设备）设计。下一部视频生效。"
++
++msgctxt "#32260"
++msgid "Low-Latency: peak of the display"
++msgstr "低延迟模式：显示设备峰值亮度"
++
++msgctxt "#32261"
++msgid "The peak brightness, in nits (cd/m²), that Low-Latency Dolby Vision is mapped to, as measured on your display. Takes effect from the next video."
++msgstr "低延迟杜比视界（LLDV）进行色调映射时所依据的显示设备最高峰值亮度，单位为尼特（cd/m²），建议填入校色仪实测值。下一部视频生效。"
++
++msgctxt "#32262"
++msgid "Low-Latency: colours of the display"
++msgstr "低延迟模式：显示设备色域"
++
++msgctxt "#32263"
++msgid "The range of colours (inside BT.2020) that Low-Latency Dolby Vision is mapped into. Takes effect from the next video."
++msgstr "低延迟杜比视界（LLDV）进行色域压缩映射时所依据的目标色彩空间（在 BT.2020 坐标范围内）。下一部视频生效。"
++
++msgctxt "#32264"
++msgid "HDR10: limit the luminance told to the display"
++msgstr "HDR10：限制向显示设备报告的峰值亮度"
++
++msgctxt "#32265"
++msgid "Tells the display a lower peak brightness for HDR10 videos than the video declares. Useful for a projector, or a TV that adapts its picture to those numbers: it then has less to squeeze. Only what is said about the picture changes, not the picture itself. Off by default: the values the film was mastered with are used. Takes effect from the next video."
++msgstr "在播放 HDR10 视频时，通过 HDMI 动态修改静态元数据（MaxCLL / MaxFALL），向显示设备报告一个低于片源真实母版标称的最高峰值亮度。专为高光动态较弱的投影仪、或严格依赖静态元数据进行画质映射的电视设计：可促使电视减少高光压缩幅度，从而使整体画面更加明亮通透。此设置仅修改随信号发送的元数据参数，并不改变底层画面像素数据本身。默认关闭（直接透传片源母版原始元数据数值）。下一部视频生效。"
++
++msgctxt "#32266"
++msgid "HDR10: the luminance told at most"
++msgstr "HDR10：最高报告峰值亮度"
++
++msgctxt "#32267"
++msgid "The highest brightness, in nits (cd/m²), that Hades tells the display for HDR10 video. For a projector, use the peak you measured. Takes effect from the next video."
++msgstr "在播放 HDR10 视频时，向显示设备报告的最高亮度上限，单位为尼特（cd/m²）。对于投影仪，建议填入仪器实测的屏幕实际峰值亮度。下一部视频生效。"
++
++msgctxt "#32274"
++msgid "Automatic: add v4.0 where there are no trims"
++msgstr "自动：无精调参数时补充 v4.0"
++
++msgctxt "#32276"
++msgid "Low-Latency: black of the display"
++msgstr "低延迟模式：显示设备黑位电平"
++
++msgctxt "#32277"
++msgid "The real black level of your display, in nits (cd/m²), as measured. Hades then lifts the darkest parts of the film so that they are not crushed into the black of the display: the darkest parts rise the most, brighter ones less, and the highlights not at all. A value that is too high greys the blacks. 0 (the default) keeps the black of the film. Takes effect from the next video."
++msgstr "根据实测填入显示设备实际能够达到的最低黑位电平，单位为尼特（cd/m²）。Hades 将在此模式下智能微调暗部伽马曲线，适度提亮影片近黑区域细节，避免暗部细节被死死压死在屏幕的物理黑位之下（最暗区域微调幅度最大，中暗调逐级减弱，高光完全保持不变）。若数值设定过高，会导致黑色发灰浮白。0（默认）：保持片源原始黑位不作提升。下一部视频生效。"
++
++msgctxt "#32280"
++msgid "HDR10 and HDR10+ adapted to the display"
++msgstr "针对显示设备本地适配 HDR10 与 HDR10+"
++
++msgctxt "#32281"
++msgid "Lets Hades adapt HDR10 and HDR10+ pictures to your display's peak brightness itself, instead of leaving it to the display. Useful for projectors and TVs that do this poorly; it uses graphics power. An HDR10+ video is adapted scene by scene from its own data, and by the studio's tone curve where it carries one. Never (the default): the picture goes out as mastered and the display adapts it. Always: every HDR10 or HDR10+ video that states its peak. Automatic: only videos brighter than your display, decided once per video. The peak of your display is the one set for Dolby Vision as HDR10 where that is on, else the one in its EDID. kodi.log gives the cost every 10 seconds. Takes effect from the next video."
++msgstr "由 Hades 本地播放器直接负责将 HDR10 及 HDR10+ 画面动态色调映射至显示设备的物理峰值亮度，而非交给电视自身硬件处理。专为自带 HDR 映射能力孱弱的投影仪与普通 HDR 电视设计（开启需消耗额外的 GPU 图形算力）。对于 HDR10+ 视频，将严格依据其动态元数据进行逐场景自适应映射，若片源携带工作室色调曲线则遵循曲线映射。“从不”（默认）：直接透传母版原始信号，完全交由显示设备映射；“始终开启”：凡标有峰值亮度元数据的 HDR10/HDR10+ 视频均在本地映射；“自动”：起播时自动判断，仅针对母版亮度高于当前显示设备能力的片源启用。显示设备的峰值亮度基准：若开启了“将杜比视界转换为 HDR10”，则取其手动设定的亮度值；否则取显示设备 EDID 声明值。kodi.log 中每 10 秒会输出一次渲染性能开销。下一部视频生效。"
++
++msgctxt "#32286"
++msgid "Ask which edition when a file has several"
++msgstr "包含多个版本时提示选择"
++
++msgctxt "#32287"
++msgid "Some film files hold more than one edition, such as the theatrical cut and the extended cut. When this is on, Hades asks which one you want each time you start such a file. If you close the question without choosing, the file plays from the start, as it is stored. Off by default."
++msgstr "部分电影文件收录了多个正片版本（如剧场版与导演加长版）。开启后，起播此类文件时 Hades 将弹出提示供你选择欲观看的版本。若直接关闭对话框未做选择，则按文件默认存储的内容从头播放。默认关闭。"
++
++msgctxt "#32288"
++msgid "Choose the edition"
++msgstr "选择影片版本"
++
++msgctxt "#32289"
++msgid "Edition {0:d}"
++msgstr "版本 {0:d}"
++
++msgctxt "#32290"
++msgid "Bitmap subtitle zoom"
++msgstr "图形字幕缩放"
++
++msgctxt "#32291"
++msgid "Resize picture-based subtitles such as PGS (Blu-ray) and VobSub. 100% is the authored size."
++msgstr "调整基于图像的图形字幕（如蓝光 PGS 和 DVD VobSub）显示大小。100% 为原始压制尺寸。"
++
++msgctxt "#32292"
++msgid "Apply position to bitmap subtitles"
++msgstr "图形字幕应用位置设置"
++
++msgctxt "#32293"
++msgid "Move picture-based subtitles such as PGS (Blu-ray) and VobSub to the position set by \"Position on screen\" and \"Vertical margin\"."
++msgstr "将基于图像的图形字幕（如蓝光 PGS 和 VobSub）移动至由“屏幕位置”和“垂直边距”所设定的位置。"
++
++msgctxt "#32294"
++msgid "Image based subtitles"
++msgstr "图形字幕"
++
++msgctxt "#32295"
++msgid "Bitmap subtitle brightness"
++msgstr "图形字幕亮度"
++
++msgctxt "#32296"
++msgid "Makes picture-based subtitles (the kind on Blu-ray discs: PGS and VobSub) dimmer, if they are too bright for you. 100 % leaves them exactly as they were made; 50 % gives them half the light. It works the same in SDR, HDR10 and Dolby Vision. Disc menus are not changed."
++msgstr "降低图形字幕（如蓝光 PGS 和 VobSub）的显示亮度，以防在 HDR 下过于刺眼。100% 保持原始亮度；50% 降低至一半亮度。在 SDR、HDR10 和杜比视界下均生效。光盘菜单不受影响。"
++
++msgctxt "#32299"
++msgid "BD-Live: Internet for disc menus"
++msgstr "BD-Live：允许光盘菜单连接网络"
++
++msgctxt "#32300"
++msgid "Some Blu-ray discs have extras that load from the Internet, such as trailers or updates (BD-Live). When this is on, the disc menus can reach the Internet, only at public IPv4 addresses and never this system or your home network. Off by default: the disc has no network at all. kodi.log lists each connection that was allowed or refused."
++msgstr "部分原盘蓝光光盘包含从互联网加载的附加内容（如预告片或在线更新，即 BD-Live）。开启后，光盘导航菜单将获准连接外部网络（出于安全防护，仅允许连接公网 IPv4 地址，严禁访问本机系统及局域网私有网段）。默认关闭：光盘运行于完全隔离的离线环境。kodi.log 会记录所有放行或拦截的网络请求。"
++
++msgctxt "#32301"
++msgid "Bitmap subtitle saturation"
++msgstr "图形字幕饱和度"
++
++msgctxt "#32302"
++msgid "Makes the colours of picture-based subtitles (the kind on Blu-ray discs: PGS and VobSub) paler, if they are too vivid for you, such as the yellow of some 4K discs. 100 % leaves them exactly as they were made; 0 % makes them grey. Their brightness stays as it is. It works the same in SDR, HDR10 and Dolby Vision. Disc menus are not changed."
++msgstr "降低图形字幕（如蓝光 PGS 和 VobSub）的色彩饱和度，避免字幕色彩过于艳丽（例如部分 4K 蓝光原盘高饱和的黄色字幕）。100% 保持原始色彩；0% 变为中性灰。字幕亮度保持不变。在 SDR、HDR10 和杜比视界下均生效。光盘菜单不受影响。"
++
++msgctxt "#32303"
++msgid "Bitmap subtitles made for"
++msgstr "图形字幕目标色彩规格"
++
++msgctxt "#32304"
++msgid "Picture-based subtitles (PGS, the kind on Blu-ray discs) are made for SDR or for HDR video, and a file can carry subtitles taken from another release of the film. Automatic follows the video, and in an HDR video draws as SDR the subtitles whose colours are brighter than any made for HDR (SDR subtitles there would be as bright as the display goes); kodi.log says when. In an SDR video it guesses nothing: HDR subtitles in an SDR video look grey, and are set with HDR. \"Same as the video\" never changes anything; SDR and HDR fix it for every file. Takes effect from the next video or subtitle track. Disc menus are not changed."
++msgstr "图形字幕（如蓝光 PGS）通常分别针对 SDR 或 HDR 视频制作，但某些媒体文件可能混用来自其他版本压制的字幕。“自动”跟随视频动态范围：在播放 HDR 视频时，若字幕色彩亮度超出了正常 HDR 字幕的范围，将自动按 SDR 色阶渲染（否则 SDR 字幕会刺眼达到屏幕峰值亮度），kodi.log 会记录触发情况；而在播放 SDR 视频时则不作推测（若 HDR 字幕在 SDR 视频中发灰，可手动固定设为“HDR”）。“与视频相同”不作任何动态调整；“SDR”与“HDR”则全局固定规格。切换至下一部视频或下一条字幕轨生效。光盘菜单不受影响。"
++
++msgctxt "#32305"
++msgid "Same as the video"
++msgstr "与视频相同"
++
++msgctxt "#32340"
++msgid "Simulate a 3D display"
++msgstr "模拟连接 3D 显示设备"
++
++msgctxt "#32341"
++msgid "Turn this on only if a Blu-ray 3D disc does not start, or stays on a black screen, on a display without 3D. The disc is told that a 3D display is connected, and it plays in 2D (one eye). A disc that would have chosen its 2D version may then open its 3D menus, which can look different. Off by default."
++msgstr "仅当 3D 蓝光光盘在不支持 3D 的普通显示设备上无法起播或出现黑屏死锁时开启。系统会向光盘模拟报告已连接 3D 显示设备，并以 2D 单眼模式呈现视频。原本在 2D 环境下默认播放 2D 版本的碟片，在此模式下可能会加载其 3D 专属导航菜单（视觉样式可能不同）。默认关闭。"
++
++msgctxt "#32360"
++msgid "Dialogue normalisation at 0 dB in passthrough"
++msgstr "音频直通时将对白归一化设为 0 dB"
++
++msgctxt "#32361"
++msgid "Off (the default, as in Kodi): your receiver lowers the sound by as much as the stream's dialogue normalisation says (a Dolby stream at -27 dB plays 4 dB lower). On: in AC-3, E-AC-3 and DTS that are passed through, the dialogue normalisation says 0 dB, and the receiver does not lower the sound; nothing else of the sound changes. This is not what the stream asks for: set the volume on the receiver. Left as the stream says: Dolby Atmos in E-AC-3 (changing its frames could break its objects), TrueHD, and DTS whose encoder version cannot say 0 dB. Takes effect at once; the log says what was changed."
++msgstr "关闭（默认，同 Kodi 原生）：功放会根据音频流中的对白归一化（Dialnorm）元数据衰减输出音量（例如标为 -27 dB 的杜比音频会衰减 4 dB 播放）。开启：在透传直通的 AC-3、E-AC-3 和 DTS 中，将对白归一化元数据修改为 0 dB，功放将不再自动衰减音量，音频其他内容保持不变。此举绕过了音频流的原始电平要求，请通过功放旋钮调节音量。以下情况保持音频流原始值不变：E-AC-3 封装的杜比全景声（修改音频帧可能破坏空间音频对象）、Dolby TrueHD，以及编码器版本不支持 0 dB 标记的 DTS。立即生效；日志中会记录修改详情。"
++
++msgctxt "#32362"
++msgid "Dynamic range compression (Dolby Digital)"
++msgstr "动态范围压缩 (杜比数字 / DRC)"
++
++msgctxt "#32363"
++msgid "How much of the volume levelling that Dolby Digital tracks (AC-3 and E-AC-3) ask for is applied when Hades decodes them. 100 % (the default, as in Kodi): all of it, which brings loud passages down and quiet ones up. 0 %: none, the full range of the mix. Not for sound that is passed through: there your receiver applies its own. Takes effect at once. <applydrc> in advancedsettings.xml, where it is set, takes priority."
++msgstr "当 Hades 本地解码杜比数字音轨（AC-3 和 E-AC-3）时，应用音频流中所请求的动态范围压缩（DRC）比例。100%（默认，同 Kodi 原生）：完全应用 DRC，压制大动态爆发音量并提升微弱对白音量；0%：完全不应用，保留混音的完整动态范围。不适用于透传直通的音频（直通由外部功放自行处理 DRC）。立即生效。若在 advancedsettings.xml 中配置了 <applydrc>，则优先采用该配置。"
++
++msgctxt "#32366"
++msgid "Centre channel level when downmixing"
++msgstr "下混时的中置声道电平"
++
++msgctxt "#32367"
++msgid "Makes the dialogue louder or quieter when a 5.1 or 7.1 track plays on fewer speakers (a TV, a stereo sound bar, headphones), in steps of 0.5 dB. 0.0 dB (the default, as in Kodi) changes nothing. It is added to the level the track asks for and to that of each video (in its audio settings). Not for sound that is passed through, nor for sound that plays on as many speakers as it has. Takes effect at once."
++msgstr "当 5.1 或 7.1 音轨下混至更少的扬声器系统（如电视自带扬声器、立体声回音壁、耳机）播放时，以 0.5 dB 为步进增强或减弱对白音量。0.0 dB（默认，同 Kodi 原生）不作调整。此增益将叠加在音轨原始电平及各视频专属音频设置之上。不适用于透传直通的音频，亦不适用于声道匹配的完整多声道系统。立即生效。"
++
++msgctxt "#32368"
++msgid "Use the track's centre level when downmixing"
++msgstr "下混时使用音轨内置中置电平"
++
++msgctxt "#32369"
++msgid "On (the default, as in Kodi): when a track plays on fewer speakers than it has, the centre channel (the dialogue) is mixed in at the level the track asks for (AC-3 and E-AC-3 tracks carry one). Off: at -3 dB, as for a track that asks for none. In both, the level of the video and 'Centre channel level when downmixing' are added to it. Not for sound that is passed through, nor for sound that plays on as many speakers as it has. Takes effect at once."
++msgstr "开启（默认，同 Kodi 原生）：当多声道下混至扬声器数量较少的设备时，中置声道（人声对白）按音轨元数据中指定的下混电平混入左右声道（AC-3 和 E-AC-3 音轨通常包含该参数）。关闭：固定按 -3 dB 混入（与无下混元数据的音轨相同）。在这两种情况下，视频专属电平及“下混时的中置声道电平”均会叠加生效。不适用于透传直通音频或声道匹配的系统。立即生效。"
++
++msgctxt "#32420"
++msgid "Videos with both Dolby Vision and HDR10+"
++msgstr "双动态元数据处理 (杜比视界与 HDR10+ 共存)"
++
++msgctxt "#32421"
++msgid "For a video that carries both Dolby Vision and HDR10+ data, on a display that takes both. Dolby Vision (the default): plays it as Dolby Vision. HDR10+: sends its HDR10 picture with its HDR10+ data, picture by picture, and leaves its Dolby Vision aside, including the enhancement layer of a profile 7 video. Only for videos whose base layer is HDR10 (profile 7 from a Blu-ray disc, and 8.1); on a display that does not take both, nothing changes. A file that carries the picture twice, as a Dolby Vision video stream and an HDR10+ one, plays the stream this chooses, and on a display that takes only one of the two, that one. For one video, 'Dolby Vision output (this video)', or the video stream chosen in its video settings, can choose either. Takes effect from the next video."
++msgstr "当视频同时包含杜比视界与 HDR10+ 动态元数据、且电视设备对两者均支持时，决定播放的优先机制。“杜比视界”（默认）：优先以杜比视界格式输出；“HDR10+”：以 HDR10 基础信号附带 HDR10+ 动态元数据逐帧输出，忽略杜比视界元数据（包括 Profile 7 增强层）。仅适用于基础层为 HDR10 的片源（如蓝光原盘 Profile 7 及 Profile 8.1）；若显示设备仅支持其中一种，则自动采用支持的格式输出。对于封装了独立两条双视频流（一条杜比视界流，一条 HDR10+ 流）的特殊文件，将优先选用此项指定的视频流播放；播放单个视频时，亦可在视频设置中单独指定。下一部视频生效。"
++
++msgctxt "#32422"
++msgid "Dolby Vision"
++msgstr "杜比视界"
++
++msgctxt "#32502"
++msgid "Show the playback mode when a video starts"
++msgstr "视频起播时显示播放模式提示"
++
++msgctxt "#32503"
++msgid "Shows a short notice a moment after a video starts, with the mode it plays in: for example 'Dolby Vision · FEL · 3840x2160 @ 23.976 Hz', or 'Dolby Vision → HDR10' where a Dolby Vision video is sent as HDR10. It is shown once per video. Off by default. The player information shows every detail."
++msgstr "在视频起播片刻后在屏幕上弹出简短提示，显示当前的播放模式：例如“Dolby Vision · FEL · 3840x2160 @ 23.976 Hz”，或当杜比视界转为 HDR10 输出时显示“Dolby Vision → HDR10”。每部视频仅在起播时弹出一次。默认关闭。若需查看完整的详细技术参数，可按遥控器上的“播放器信息”查看。"
++
++msgctxt "#32504"
++msgid "Playback mode"
++msgstr "媒体播放模式"
++
++msgctxt "#32505"
++msgid "Dolby Vision"
++msgstr "杜比视界"
++
++msgctxt "#32506"
++msgid "HDR colour depth and format (advanced)"
++msgstr "HDR 色彩位深与格式 (高级)"
++
++msgctxt "#32507"
++msgid "HDR on displays without Dolby Vision, and projectors"
++msgstr "非杜比视界显示设备与投影仪的 HDR 适配"
++
++msgctxt "#32510"
++msgid "HDR at more than 8 bits where the card sends RGB at 8 (NVIDIA)"
++msgstr "RGB 仅 8 位时以更高位深输出 HDR (NVIDIA)"
++
++msgctxt "#32511"
++msgid "For NVIDIA cards whose HDMI output would send HDR in RGB at only 8 bits: GeForce GTX 10, GTX 16 and RTX 20, TITAN V, and other cards at 4K 50 or 60 Hz without an HDMI 2.1 link. On: HDR goes out as YCbCr 4:2:2 at 12 bits instead (10 on GeForce GTX 10 and TITAN V), at the same link speed, which reduces banding and keeps all the colour detail of the video. If the TV does not lock onto it, that mode goes back to 8 bits by itself. Dolby Vision and SDR are not affected. Takes effect from the next video."
++msgstr "专为通过 HDMI 输出 HDR 时 RGB 模式受限于 8-bit 的 NVIDIA 显卡设计：包括 GeForce GTX 10 系列、GTX 16 系列、RTX 20 系列、TITAN V，以及缺少原生 HDMI 2.1 满速链路而在 4K 50/60 Hz 下受限的显卡。开启后：HDR 信号将改以同等带宽速度的 YCbCr 4:2:2 12-bit 输出（GTX 10 系列与 TITAN V 输出 10-bit），有效消除色带断层并完整保留片源色彩细节。若电视无法与该模式握手同步，将自动回退至 8-bit 输出。杜比视界与 SDR 不受影响。下一部视频生效。"
++
++msgctxt "#32512"
++msgid "RGB at 12 bits first (GeForce GTX 16, RTX 20)"
++msgstr "优先使用 RGB 12 位输出 (GTX 16 / RTX 20)"
++
++msgctxt "#32513"
++msgid "Only for GeForce GTX 16 and RTX 20 cards, which have no 10 bits in RGB over HDMI. On: where the TV takes 36-bit deep colour and the mode fits (up to 4K at 30 Hz on HDMI 2.0), HDR goes out in RGB at 12 bits rather than YCbCr 4:2:2, which keeps the full colour detail of menus and subtitles but runs the link 1.5 times faster. Where the TV does not lock onto it, that mode goes back to YCbCr 4:2:2 by itself, but some TVs lock and still show nothing: if yours does, stop the video and turn this off."
++msgstr "仅适用于在 HDMI 接口下 RGB 不支持 10-bit 输出的 GeForce GTX 16 及 RTX 20 系列显卡。开启后：当电视支持 36-bit Deep Color（高位深色彩）且当前 HDMI 2.0 带宽允许时（如最高支持至 4K 30 Hz），HDR 将优先以 RGB 12-bit 而非 YCbCr 4:2:2 输出，从而使菜单与字幕保留极致完整的色彩边缘细节（但 HDMI 链路时钟频率将提升 1.5 倍）。若电视无法正常握手，该模式会自动回退至 YCbCr 4:2:2；但部分电视握手成功后可能依然黑屏无画面，若遇此情况请停止播放并关闭此项。"
++
++msgctxt "#32530"
++msgid "Picture in step with its sound"
++msgstr "音画精确时序同步 (对齐屏幕刷新)"
++
++msgctxt "#32531"
++msgid "On (the default): Hades measures when each frame really reaches the screen and shows it with its sound. Without this, as Kodi does, the picture leaves this computer one screen refresh before its sound (42 ms at 24 Hz, 17 ms at 60 Hz). Which frames are seen, and for how long each, does not change: each one only starts at the right refresh. In each display mode it is measured the first time while the video plays, and used from the next video or skip on; turning this on or off also takes effect from the next video or skip. It works where the refresh rate is a whole multiple of the frame rate, as when Hades changes the refresh rate for a film. If you had set \"Audio offset\" to make up for this, set it back to 0."
++msgstr "开启（默认）：Hades 精确测量每帧画面真正呈现在屏幕上的物理时间戳，并驱动音频与之绝对精准对齐。不开启时（同原生 Kodi 逻辑）：画面离开电脑主机的时机通常比对应音频滞后一个完整的屏幕刷新周期（在 24 Hz 下约为 42 毫秒，60 Hz 下约为 17 毫秒）。开启此项不改变画面帧内容与呈现时长，仅确保每帧在最准确的垂直刷新时刻点亮。各显示模式下的时序在视频起播时初次测算，并在下一部视频或下一次跳转快进时应用；开闭此设置亦在下次起播或跳转后生效。该机制要求屏幕刷新率为视频帧率的整数倍（如开启“调整显示刷新率”匹配 24p 电影）。若以往曾手动通过“音频偏移”来补偿此延迟，建议将其重置归零。"
++
++msgctxt "#32590"
++msgid "Play HDR videos as SDR"
++msgstr "将 HDR 视频转换为 SDR 输出"
++
++msgctxt "#32591"
++msgid "For a display whose HDR picture you like less than its SDR one: a TV that shows HLG badly, or a projector. The videos chosen here are sent as ordinary SDR instead of HDR, converted as for a display without HDR: with the tone mapping \"Reference (BT.2390)\" (the default), for the display chosen in \"HDR to SDR: the display it is made for\". The display stays in its SDR picture mode, as for the menus. Never (the default): HDR videos go out as HDR. HLG videos: only HLG, which TV broadcasts use. HLG, HDR10 and HDR10+ videos: all three. Dolby Vision videos are not affected, nor videos that a setting sends as Dolby Vision. Greyed out while \"Adjust display HDR mode\" (Player > Videos) is off: every HDR video then goes out as SDR already. Applies from the next video."
++msgstr "专为 HDR 观感反而不如 SDR 的特定设备设计（如 HLG 显示效果较差的电视机、或投影仪）。将在此选定的高动态视频转为标准 SDR 格式输出（采用如同针对普通 SDR 显示器的高精度色彩转换：色调映射默认采用“参考基准 (BT.2390)”，目标显示器参数遵循“HDR 转 SDR：目标显示设备基准”中的设定）。显示设备将始终停留在其 SDR 图像模式下，与菜单一致。“从不”（默认）：所有 HDR 视频正常以 HDR 信号输出；“HLG 视频”：仅针对电视广播普遍采用的 HLG 视频转换；“HLG、HDR10 与 HDR10+ 视频”：上述三类 HDR 格式均转换为 SDR 输出。原生杜比视界视频及被转为杜比视界输出的视频不受影响。若系统全局“调整显示器 HDR 模式”（播放器 > 视频）处于关闭状态，该选项将置灰不可选（此时所有 HDR 视频本身已全部转为 SDR 输出）。下一部视频生效。"
++
++msgctxt "#32592"
++msgid "Never"
++msgstr "从不"
++
++msgctxt "#32593"
++msgid "HLG videos"
++msgstr "仅 HLG 视频"
++
++msgctxt "#32594"
++msgid "HLG, HDR10 and HDR10+ videos"
++msgstr "HLG、HDR10 与 HDR10+ 视频"
++
++msgctxt "#32600"
++msgid "Tone mapping v4.0: set the TV's peak by hand"
++msgstr "色调映射 v4.0：手动指定电视机峰值亮度"
++
++msgctxt "#32601"
++msgid "Some TVs declare a wrong peak brightness in the information they give Hades. The automatic choices of the tone mapping (v4.0) then judge wrongly whether a video is brighter than the TV. Turn this on and set the real peak below. It changes nothing while the tone mapping (v4.0) is \"As in the video\". Applies from the next video."
++msgstr "部分电视设备在提供给 Hades 的信息中虚标或误报了峰值亮度。这会导致色调映射（v4.0）中的“自动”判定逻辑发生误判（无法正确评估片源是否亮于当前电视）。开启此项并在下方手动设定真实的硬件峰值亮度。当色调映射（v4.0）设为“遵循视频原始设定”时，此选项不产生影响。下一部视频生效。"
++
++msgctxt "#32602"
++msgid "Tone mapping v4.0: peak brightness of the TV"
++msgstr "色调映射 v4.0：电视机峰值亮度"
++
++msgctxt "#32603"
++msgid "The peak brightness of the TV in cd/m², as measured or as its maker states it. Used only while \"Tone mapping v4.0: set the TV's peak by hand\" is on. Applies from the next video."
++msgstr "电视机实际能够达到的最大峰值亮度，单位为 cd/m²（尼特），请填入实测值或厂商标称规格。仅在“色调映射 v4.0：手动指定电视机峰值亮度”开启时生效。下一部视频生效。"
++
++msgctxt "#32610"
++msgid "HDR to SDR: the display it is made for"
++msgstr "HDR 转 SDR：目标显示设备基准"
++
++msgctxt "#32611"
++msgid "On a display that takes no HDR, an HDR video is converted to ordinary SDR (Dolby Vision always; HDR10, HDR10+ and HLG with the tone mapping method \"Reference (BT.2390)\", the default, or \"BT.2390, libplacebo's knee\"), and this says what kind of display that SDR is made for. Reference (the default): a display that shows white at 203 cd/m² with gamma 2.4, as the standards define for SDR made from HDR. Bright room: a display set brighter, white at 300 cd/m² with gamma 2.2, as many TVs in a lit living room: choose it if the picture looks too bright or washed out with Reference. Projector: a dimmer display, white at 100 cd/m²: choose it if the picture looks too dark with Reference. Custom: the white and the gamma that you set below. Nothing is clipped in any of them: what is brighter than the display's white is compressed. Applies from the next video."
++msgstr "在不支持 HDR 的显示设备上播放 HDR 视频时，系统会自动将其色调映射为普通 SDR（杜比视界必定执行此转换；HDR10、HDR10+ 与 HLG 采用“参考基准 (BT.2390)”或“BT.2390 (libplacebo 拐点)”进行映射）。本选项用于指定该 SDR 映射是针对何种显示环境与设备特性优化的。“参考基准”（默认）：目标为白点 203 cd/m²、Gamma 2.4 的标准环境（符合国际标准中由 HDR 制作 SDR 的定义）；“明亮环境”：目标为调高亮度的显示设备（白点 300 cd/m²、Gamma 2.2，如日常开灯客厅中的主流电视；若使用“参考基准”时画面过亮发灰可选用此项）；“投影仪”：目标为光输出较低的较暗设备（白点 100 cd/m²；若使用“参考基准”时画面暗部偏暗可选用此项）；“自定义”：由用户在下方自由指定白点与 Gamma 数值。所有模式均不生硬裁切高光，超出显示白点的部分均平滑压缩。下一部视频生效。"
++
++msgctxt "#32612"
++msgid "Reference"
++msgstr "参考基准 (203 nits / Gamma 2.4)"
++
++msgctxt "#32613"
++msgid "Bright room"
++msgstr "明亮环境 (300 nits / Gamma 2.2)"
++
++msgctxt "#32614"
++msgid "Projector"
++msgstr "投影仪 (100 nits)"
++
++msgctxt "#32615"
++msgid "Custom"
++msgstr "自定义"
++
++msgctxt "#32616"
++msgid "Custom: white of the display"
++msgstr "自定义：显示设备白点亮度"
++
++msgctxt "#32617"
++msgid "For \"Custom\": the white that your display shows in SDR, in nits (cd/m²), as measured or as its maker states it: about 100 for a projector or a display in a dark room, 200 to 300 for a TV in a lit room. The brighter the white, the lower the codes the picture is sent with, so that it keeps the brightness it was made for; the dimmer, the higher, and what is brighter than this white is compressed. 203 with gamma 2.4 is Reference, the same picture. Applies from the next video."
++msgstr "配合“自定义”使用：设定显示设备在 SDR 模式下的真实白点亮度，单位为尼特（cd/m²），请根据实测或标称填入：暗室环境下的投影仪或显示器通常约为 100，开灯环境下的家用电视约为 200 至 300。白点设得越高，映射后输出的像素电平码值越低，以忠实还原原片制作时的亮度基准；白点越低，码值相应推高，高于该白点的高光部分平滑压缩。203 搭配 Gamma 2.4 即等同于“参考基准”模式。下一部视频生效。"
++
++msgctxt "#32618"
++msgid "Custom: gamma of the display"
++msgstr "自定义：显示设备 Gamma 曲线"
++
++msgctxt "#32619"
++msgid "For \"Custom\": the gamma of your display in SDR, from 1.8 to 2.8: 2.4 for a reference display in a dark room (BT.1886), 2.2 for most TVs and monitors in a lit room. Set the one your display has: a lower value than your display's makes the mid-tones darker, a higher one lighter. 2.4 with white 203 is Reference, the same picture. Applies from the next video."
++msgstr "配合“自定义”使用：设定显示设备在 SDR 模式下的 Gamma 响应曲线值，范围 1.8 至 2.8：暗室环境下的基准显示器标准为 2.4（BT.1886），常规明亮环境下的主流电视与显示器通常为 2.2。请根据设备实际情况匹配设定：若设定值低于屏幕实际值会使画面中调变暗，高于实际值则使中调偏亮。Gamma 2.4 搭配白点 203 即等同于“参考基准”模式。下一部视频生效。"
++
++msgctxt "#32621"
++msgid "Black of the display"
++msgstr "显示设备黑位电平"
++
++msgctxt "#32622"
++msgid "The real black level of your display in HDR, in nits (cd/m²), as measured: for \"Adapt Dolby Vision to my display (projectors)\" and, while that is on, for \"HDR10 and HDR10+ adapted to the display\". Hades then lifts the darkest parts of the film so that they are not crushed into the black of the display: the darkest parts rise the most, brighter ones less, and the highlights not at all. A value that is too high greys the blacks. 0 (the default) keeps the black of the film. Takes effect from the next video."
++msgstr "根据实测填入显示设备在 HDR 模式下的实际物理黑位电平，单位为尼特（cd/m²）。此参数供“针对显示设备适配杜比视界 (投影仪/HDR10)”使用；若开启了该选项，亦同时作用于“针对显示设备本地适配 HDR10 与 HDR10+”。Hades 会自适应微调最暗部的曲线过渡，避免极端暗部细节被死死压死在设备的物理黑位之下（最暗部补偿幅度最高，稍亮区域逐级减弱，高光完全不受影响）。数值设得过高会导致黑位发灰。0（默认）：保持片源原始黑位不变。下一部视频生效。"
++
++msgctxt "#32630"
++msgid "HLG as Dolby Vision"
++msgstr "将 HLG 视频转换为杜比视界输出"
++
++msgctxt "#32631"
++msgid "For a display that takes Dolby Vision. An HLG video can be sent as Dolby Vision instead of as HLG: Hades converts its picture to PQ as ITU-R BT.2100 says an HLG picture is shown on its reference display (1000 cd/m² and a system gamma of 1.2) and measures the peak, the average and the darkest level of each scene from that picture, as \"Make HDR10 videos Dolby Vision (measured)\" does. This changes the picture on purpose: the display maps it with its Dolby Vision processing instead of its HLG one, so brightness and contrast are not those of its HLG mode, and the metadata are not the studio's (an HLG video has none). Automatic (the default): only where this output cannot send HLG at all but can carry Dolby Vision, as some Intel graphics, so that the video keeps its HDR instead of being mapped to SDR; everywhere else HLG plays as HLG. On: wherever the display takes Dolby Vision. Off: HLG always plays as HLG. HDR10, HDR10+ and Dolby Vision videos are not affected. Applies from the next video."
++msgstr "专为支持杜比视界的显示设备设计。允许将 HLG 高动态视频转换为杜比视界格式输出：Hades 会依照 ITU-R BT.2100 规范，将 HLG 曲线转换为基准监视器上的 PQ 信号（以 1000 cd/m² 白点、系统 Gamma 1.2 为基准），并在此基础上实时逐场景测算峰值高光、平均电平与暗部黑位并打包生成杜比视界动态元数据。此举是有意改变画面呈现方式：电视将调用其杜比视界处理引擎而非 HLG 处理进行映射，因此画面的明暗对比将不同于标准 HLG 模式，且元数据为算法实时测算（HLG 片源原生并无动态元数据）。“自动”（默认）：仅在当前显卡输出接口完全无法输出原生 HLG、但支持杜比视界输出时（如部分 Intel 老款核显）自动转换，使视频保留 HDR 动态范围而不至于降级为 SDR；其他环境下 HLG 依然以原生格式播放；“开启”：只要显示设备支持杜比视界即强制转换；“关闭”：HLG 始终以原生格式播放。原生 HDR10、HDR10+ 及杜比视界视频不受影响。下一部视频生效。"
++
++msgctxt "#32633"
++msgid "Automatic: only where HLG cannot be sent"
++msgstr "自动：仅在无法原生发送 HLG 时转换"
++
++msgctxt "#32634"
++msgid "On"
++msgstr "开启"
++
++msgctxt "#32635"
++msgid "Off"
++msgstr "关闭"
++
++msgctxt "#32900"
++msgid "Dolby Vision through a display converter"
++msgstr "通过转接芯片输出杜比视界 (DP 转 HDMI)"
++
++msgctxt "#32901"
++msgid "Some boards have a DisplayPort to HDMI converter between the graphics port and the HDMI socket (many mini PCs and NUCs with Intel graphics of the 11th generation and later), which Linux treats as a DisplayPort output. A converter turns what the graphics send into HDMI in its own way, and one that does not carry the Dolby Vision signal leaves the TV without Dolby Vision, or without a picture. Automatic offers Dolby Vision through it only on the boards where it was seen working. On offers it through any converter that the driver takes: try it if your TV shows no Dolby Vision from the HDMI socket of your board, and set it back if the picture goes. Off never uses it. It is not used on a native HDMI output. Applies from the next video."
++msgstr "部分主板在显卡接口与 HDMI 插孔之间集成了 DisplayPort 转 HDMI 转换器（广泛见于搭载 11 代及以上 Intel 核显的迷你主机和 NUC），Linux 会将其识别为 DisplayPort 输出。该转换器以自身固件逻辑将显卡信号转换为 HDMI 输出；若转换器不支持透传杜比视界信号，会导致电视无法识别杜比视界甚至黑屏无画面。“自动”（默认）：仅在经过实测验证兼容的主板型号上通过转换器启用杜比视界；“开启”：在显卡驱动支持的任何转换器上均尝试输出杜比视界（若你的主板 HDMI 接口无法点亮杜比视界，可尝试开启此项；若开启后黑屏无信号则设回默认）；“关闭”：彻底禁用通过转换器输出杜比视界。原生独立 HDMI 接口不受此设置影响。下一部视频生效。"
++
++msgctxt "#32902"
++msgid "Automatic (boards where it was seen working)"
++msgstr "自动 (仅在已知兼容的主板上启用)"
++
++msgctxt "#32903"
++msgid "On (try it on any board)"
++msgstr "开启 (在所有主板上尝试)"
++
++msgctxt "#32904"
++msgid "Off"
++msgstr "关闭"
++
++msgctxt "#32910"
++msgid "Colour format"
++msgstr "色彩格式"
++
++msgctxt "#32911"
++msgid "The colour format that the graphics card sends to the display, where the driver lets Hades choose it (AMD graphics, and NVIDIA graphics with driver 620 on HDMI, which has no 4:2:0). Automatic is what LibreELEC Hades does without this setting. A format that the driver cannot carry in a mode (for example YCbCr 4:4:4 at 3840x2160 and 60 Hz over HDMI 2.0) goes out as Automatic in that mode, and the log says so. Dolby Vision always goes out as RGB at 8 bits. Applies with the next change of mode, or the next video that signals HDR."
++msgstr "显卡输出至显示设备的像素色彩格式（在驱动允许 Hades 主动选择的环境下生效：如 AMD 显卡，以及在 HDMI 下采用 620 驱动且不支持 4:2:0 的 NVIDIA 显卡）。“自动”遵循 LibreELEC Hades 默认的最佳协商策略。若显卡驱动在某一显示模式下因带宽不足无法承载所选格式（例如在 HDMI 2.0 带宽下输出 3840x2160 60 Hz 的 YCbCr 4:4:4），系统在该模式下将自动回退为“自动”并在日志中记录说明。原生杜比视界始终固定以 RGB 8-bit 输出。随下次显示模式切换或下一部包含 HDR 信号的视频生效。"
++
++msgctxt "#32912"
++msgid "Automatic"
++msgstr "自动"
++
++msgctxt "#32917"
++msgid "Maximum bit depth"
++msgstr "最大输出位深"
++
++msgctxt "#32918"
++msgid "The most bits per colour component that the link to the display may carry, where Hades can set it (not on NVIDIA graphics, which have their own setting for HDR). Automatic leaves the choice to the driver. A depth that the driver cannot carry in a mode goes out as Automatic in that mode, and the log says so. Dolby Vision always goes out at 8 bits. Applies with the next change of mode, or the next video that signals HDR."
++msgstr "输出链路允许承载的每个色彩分量的最大量化位深（在 Hades 拥有控制权的环境下生效；NVIDIA 显卡由专属的 HDR 位深设置控制）。“自动”完全交由驱动协商最优位深。若显卡驱动在特定显示模式下因接口带宽限制无法承载所设位深，在该模式下将自动回退至“自动”并记录于系统日志。原生杜比视界始终固定以 8-bit 输出。随下次显示模式切换或下一部包含 HDR 信号的视频生效。"
++
++msgctxt "#32919"
++msgid "Automatic"
++msgstr "自动"
++
++msgctxt "#32920"
++msgid "8 bits"
++msgstr "8 位"
++
++msgctxt "#32921"
++msgid "10 bits"
++msgstr "10 位"
++
++msgctxt "#32922"
++msgid "12 bits"
++msgstr "12 位"
++
++msgctxt "#32950"
++msgid "Keep the graphics card at full speed while HD audio plays through"
++msgstr "高清音频直通期间锁定显卡最高性能"
++
++msgctxt "#32951"
++msgid "For an NVIDIA graphics card that sends the sound to the TV or the receiver over HDMI. While Dolby TrueHD, DTS-HD or Dolby Digital Plus (E-AC-3) is sent as it is, without Hades decoding it (passthrough), the clocks of the card are held at their highest, and let go when the sound stops or Hades closes. Try it if the sound cuts out for a moment every few seconds, mostly on a laptop that is on its charger: the card changes speed and the audio loses a few samples (the kernel log then says 'dma error'). While it is on, the card draws more power and gets warmer, and a card that does not allow it is left as it was: kodi.log says what happened. It takes effect when the next sound starts. Off by default."
++msgstr "专为通过 HDMI 将音频输出至电视或功放的 NVIDIA 显卡设计。当透传直通 Dolby TrueHD、DTS-HD Master Audio 或 Dolby Digital Plus (E-AC-3) 等高码率音频比特流时（无需 Hades 本地解码），将显卡核心及显存频率强行锁定在最高性能状态，待音频停止播放或退出 Hades 时恢复。若播放高清音频时每隔数秒便出现短暂爆音或静音中断（常见于连接了电源适配器的笔记本电脑：GPU 动态电源管理降频或升频波动导致 HDMI 音频 DMA 缓冲欠载丢失采样，内核日志常伴随“dma error”报错），强烈建议开启此选项。开启期间显卡功耗与发热会有所上升；若显卡固件不支持频率锁定则保持原样（kodi.log 中会记录执行情况）。在下一次音频流起播时生效。默认关闭。"
++
++msgctxt "#32952"
++msgid "Keep the display of the audio output on"
++msgstr "独立音频输出端口防休眠 (保持输出端显示器常开)"
++
++msgctxt "#32953"
++msgid "Hades lights only the display that shows the picture (System > Display > Monitor), and the sound goes to the audio output of that display, whatever number that output has today. Turn this on only if the sound goes to a device on another output of the graphics card, such as an AV receiver on its own HDMI output: the display of the audio output chosen above is then kept on, black, for its sound, and if it was off, it comes on with the next video that changes the display mode. Off by default."
++msgstr "正常情况下 Hades 仅唤醒并点亮负责渲染画面的主显示设备（系统 > 显示 > 显示器），音频默认输出至该显示设备的音频通道。仅当音频独立输出至显卡另一个视频接口上的设备时（典型场景：双 HDMI 输出，HDMI 1 直连 4K HDR 电视显示画面，HDMI 2 独立连接功放专供高清音频），才需开启此选项：系统将对所选的音频输出接口持续输出纯黑画面以维持 HDMI 链路活跃，防止功放因检测不到视频信号而休眠断连断音；若该辅助显示设备此前处于关闭状态，将在下一部触发显示模式切换的视频起播时被点亮唤醒。默认关闭。"
++
++msgctxt "#32970"
++msgid "HDR over HDMI on this Intel graphics"
++msgstr "通过 HDMI 在该 Intel 核显上输出 HDR"
++
++msgctxt "#32971"
++msgid "For experts. The HDMI port of this Intel graphics (HD and UHD 6xx) has no packet of its own to tell the TV that a picture is HDR, so Hades sends HDR10 and HLG videos as Dolby Vision to a TV that has Dolby Vision, and in SDR to one that does not. On: they go to the TV as HDR10 and HLG, with the HDR information in another packet of the graphics chip. Nobody has tried this on a TV yet: if HDR videos then look washed out or pale, the TV does not take it, and you turn this off again. Off by default. Takes effect from the next start: Hades asks whether to restart now."
++msgstr "专家选项。部分 Intel 老款核显（HD / UHD 6xx 系列）原生的 HDMI 接口在硬件底层缺少发送标准 HDR 数据包的能力，因此 Hades 默认会将 HDR10 与 HLG 视频封装为杜比视界发往兼容电视，或对不支持杜比视界的电视降级为 SDR 输出。开启后：尝试调用图形芯片的其他数据包注入 HDR 元数据，从而直接以原生 HDR10 及 HLG 格式向电视输出。该实验性功能尚未在所有电视型号上充分验证：若开启后 HDR 视频画面灰暗发白，表明电视无法识别此数据包，请将其关闭。默认关闭。系统下次启动生效（修改后将提示是否立即重启）。"
++
++msgctxt "#32972"
++msgid "Dolby Vision on this Radeon (experimental)"
++msgstr "在该 Radeon 显卡上启用杜比视界 (实验性)"
++
++msgctxt "#32973"
++msgid "For experts. Plays Dolby Vision as Dolby Vision on this Radeon (RX 400 and 500, Vega and Radeon VII: the older display hardware of AMD). Off by default, and then Dolby Vision plays as HDR10, which works. It has been tried on one card only, an RX 550 with an LG G3, and the TV showed its Dolby Vision logo over a black picture. If the picture goes black, stop the video: the menus come back, and you can turn this off here. The button \"Check the Dolby Vision output\" (LibreELEC settings > System > Submit Log) checks what the card sends. Takes effect from the next start: Hades asks whether to restart now."
++msgstr "专家选项。允许在搭载 AMD 早期显示硬件的显卡（包括 RX 400 / 500 系列、Vega 系列及 Radeon VII）上尝试输出原生杜比视界。默认关闭（关闭时杜比视界转换为 HDR10 播放，兼容性更稳定）。该实验性特性验证范围有限（仅在 RX 550 配 LG G3 测试下电视成功握手杜比视界并弹出徽标，但伴随黑屏）。若开启后视频播放黑屏，请立即停止播放并返回菜单关闭此项。可通过“检查杜比视界输出”功能（LibreELEC 设置 > 系统 > 提交日志）排查显卡实际输出的信号包。下次启动生效（将提示是否立即重启）。"
++
++msgctxt "#33000"
++msgid "HDR in 4:2:2 at 12 bits over HDMI 2.0"
++msgstr "在 HDMI 2.0 下以 4:2:2 12 位输出 HDR"
++
++msgctxt "#33001"
++msgid "At 3840x2160 and 50 or 60 Hz, HDMI 2.0 does not carry RGB at 10 bits, so the graphics driver sends HDR as YCbCr 4:2:0 at 10 bits (or RGB at 8 bits). With this on, an HDR10, HLG or HDR10+ video goes out as YCbCr 4:2:2 at 12 bits instead, inside the RGB 8-bit signal that Dolby Vision uses, with its HDR metadata as always: the colour of what Hades draws over the video (subtitles, the on-screen display) keeps twice the detail, and the video is carried exactly. It is used only where the display says it takes 4:2:2, the driver can send it and nothing else has the output (Intel and AMD graphics); anything it cannot take goes out as before, and the log says why. It applies with the next video. Off: HDR always goes out as before."
++msgstr "在 3840x2160 分辨率且刷新率为 50 Hz 或 60 Hz 时，受制于 HDMI 2.0 物理带宽上限，接口无法承载 RGB 10-bit 全色深，常规显卡驱动通常被迫将 HDR 降级为 YCbCr 4:2:0 10-bit（或 RGB 8-bit）输出。开启后：HDR10、HLG 与 HDR10+ 视频将改用 YCbCr 4:2:2 12-bit 输出，并巧妙封装于与杜比视界相同的 RGB 8-bit 隧道信号中，同时完整保留 HDR 静态与动态元数据：叠加在视频上的图形元素（字幕、OSD 界面）可获得翻倍的色彩细节，且视频本体色彩与动态范围丝毫无损。仅在显示设备声明支持 4:2:2、驱动支持且当前无其他独占输出时生效（支持 Intel 与 AMD 显卡）；若设备不支持则维持原有输出方式并在日志中记录说明。随下一部视频生效。关闭：HDR 维持原有常规输出管线。"
++
++msgctxt "#33190"
++msgid "Rebuild films from interlaced video"
++msgstr "隔行扫描胶片逆向重建 (反交错/IVTC)"
++
++msgctxt "#33191"
++msgid "Many DVDs, and films on television, store a film as interlaced video: each picture of the film is split into its two fields, and on an NTSC disc some fields or frames are repeated to fill 30 frames a second; on a PAL disc the film is often just marked as interlaced. Such video was deinterlaced at 59.94 or 50 Hz, which softens fine detail and makes motion uneven. With this on, before a DVD title or an MPEG-2 file plays, LibreELEC Hades decodes a few seconds of it at its start and at three places further on. Where they all show the same film, the fields of each picture are put back together exactly as they were, the repeated ones are left out, and the film plays at its own rate (23.976, 25 or 29.97 Hz, with 'Adjust display refresh rate'). Video that is really interlaced, a title that mixes film and video, and anything Hades is not sure of play as before, and a frame whose fields do not match (a cut) is deinterlaced on its own. Nothing is rebuilt where 'Deinterlace method' is 'Off' for a video. Applies to the next video. Off: as Kodi plays them."
++msgstr "许多 DVD 原盘及电视播出的电影是以隔行视频存储的：原本完整的逐行电影画面被拆解为两个隔行场（在 NTSC 制式下通过 3:2 Pull-down 重复特定场/帧以凑满每秒 30 帧；在 PAL 制式下通常仅单纯标记为隔行）。传统反交错方案通常在 59.94 Hz 或 50 Hz 下进行去隔行插值，往往会导致边缘细节模糊软化且产生动态顿挫。开启后：在播放 DVD 或 MPEG-2 视频前，LibreELEC Hades 会在片头及后续三个不同时间点各预先解码数秒进行场匹配分析；若确认属于电影胶片胶转磁源，则通过反向电视电影处理（IVTC）将每帧画面的两个隔行场精确拼合复原为原始逐行画面，剔除冗余重复场，使电影恢复其原生帧率（配合“调整显示刷新率”以 23.976、25 或 29.97 Hz 输出）。对于纯摄像机拍摄的真实隔行视频、胶片与视频混合剪辑的片源或无法完全断定的内容，则自动维持原有常规反交错流程，仅对场不匹配的剪辑转场帧进行单独反交错。若单个视频的“去隔行算法”被设为“关闭”，则不执行任何重建。下一部视频生效。关闭：完全采用 Kodi 原生常规反交错逻辑。"
++
++msgctxt "#33460"
++msgid "BT.2390, libplacebo's knee"
++msgstr "BT.2390 曲线 (libplacebo 拐点)"
++
++msgctxt "#33461"
++msgid "Dolby Vision: apply the trims when adjusting to your display"
++msgstr "杜比视界：本地映射时应用精调参数 (Trims)"
++
++msgctxt "#33462"
++msgid "Some Dolby Vision films carry trims made for exactly your display's peak brightness. Where LibreELEC Hades adjusts Dolby Vision to your display itself (shown as HDR10 adjusted to the display, as SDR, or in Low-Latency), this decides whether it applies them. Off (the default): it does not, and the picture is adjusted from each scene's brightness alone. The standards describe only one way to apply them, as an example; compared with a studio's own version of a film for a 1000-nit display, that way made the shadows much darker than the studio did (in one scene, everything darker than about 11 nits turned black), so it stays off until the right way is known. On: they are applied that way. A TV that does Dolby Vision itself (native output) applies the trims on its own and is not affected by this. Nothing changes while \"Dolby Vision: ignore the studio's fine-tuning (trims)\" is on. Applies from the next video."
++msgstr "部分杜比视界影片包含专为匹配目标显示设备峰值亮度所制作的精调参数（Trims）。当由 LibreELEC Hades 本地进行色调映射时（转换为适配显示设备的 HDR10、SDR 或低延迟 LLDV），此设置决定是否在本地计算中解析应用这些精调参数。关闭（默认）：完全忽略精调，仅根据各场景的基础亮度元数据进行映射。官方标准规范目前仅以示例形式提供了一种精调解析计算方式；但对比工作室官方为 1000 nits 显示器专门母带调色的影片版本，该示例计算方法会导致暗部细节严重被压暗（在实测场景中，低于约 11 nits 的暗部甚至被全部压成死黑），因此在确知官方商业级算法前建议保持关闭。开启：按照该示例算法解析应用精调参数。原生输出杜比视界信号由电视自身硬件映射时不受此项影响。当“杜比视界：忽略工作室调色精调参数 (Trims)”处于开启状态时，本项不产生任何变化。下一部视频生效。"
++
+ #~ msgctxt "#31025"
+ #~ msgid "No favourites found. You can add any item from media views to this list by using the context menu."
+ #~ msgstr "未找到收藏。你可以从媒体浏览使用上下文菜单添加收藏项目。"
