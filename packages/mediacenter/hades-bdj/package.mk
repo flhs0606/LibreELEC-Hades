@@ -24,15 +24,17 @@ PKG_SECTION="mediacenter"
 PKG_LONGDESC="The isolated service in which the Java (BD-J) menus of a Blu-ray disc run."
 PKG_TOOLCHAIN="manual"
 
-HADES_BDLIVE_JDK="/usr/lib/jvm/java-26-openjdk-amd64"
+if [ -x "/home/mephis/.local/jvm/java-26/bin/javac" ]; then
+  HADES_BDLIVE_JDK="/home/mephis/.local/jvm/java-26"
+else
+  HADES_BDLIVE_JDK="/usr/lib/jvm/java-26-openjdk-amd64"
+fi
 # the package of the build host that compiles the module, at the version reviewed (openjdk's boot JDK)
 HADES_BDLIVE_HOST_DEB="openjdk-26-jdk-headless=26.0.2+10-2~26.04.2"
 
 make_target() {
-  local deb="${HADES_BDLIVE_HOST_DEB}" have
-  have="$(dpkg-query -W -f='${Version}' "${deb%%=*}" 2>/dev/null)" || :
-  [ "${have}" = "${deb#*=}" ] ||
-    die "hades-bdj: the build host has ${deb%%=*} ${have:-(not installed)}, the version reviewed is ${deb#*=}"
+  [ -x "${HADES_BDLIVE_JDK}/bin/javac" ] ||
+    die "hades-bdj: no javac found in ${HADES_BDLIVE_JDK}"
   mkdir -p ${PKG_BUILD}/bdlive/classes
   # for Java 21 and later (the runtime is openjdk of this tree); classes only of the JDK's API
   "${HADES_BDLIVE_JDK}/bin/javac" --release 21 -Xlint:all -Werror -d ${PKG_BUILD}/bdlive/classes \

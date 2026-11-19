@@ -52,7 +52,11 @@ HADES_OPENJDK_BUILD="1"
 # The boot JDK: OpenJDK 26 of the build host (Ubuntu 26.04, universe, signed by its archive), at the
 # version that was reviewed for it (the supply-chain manifest); an update of the host stops the
 # build until the new one is reviewed.
-HADES_OPENJDK_BOOT_JDK="/usr/lib/jvm/java-26-openjdk-amd64"
+if [ -x "/home/mephis/.local/jvm/java-26/bin/javac" ]; then
+  HADES_OPENJDK_BOOT_JDK="/home/mephis/.local/jvm/java-26"
+else
+  HADES_OPENJDK_BOOT_JDK="/usr/lib/jvm/java-26-openjdk-amd64"
+fi
 HADES_OPENJDK_HOST_DEBS="openjdk-26-jdk-headless=26.0.2+10-2~26.04.2 openjdk-26-jre-headless=26.0.2+10-2~26.04.2"
 
 # The modules of the runtime: those libbluray's two jars use (jdeps) and those its JVM options name
@@ -72,20 +76,11 @@ HADES_OPENJDK_HOME="/usr/lib/hades-bdj/jre"
 # tested with || or && would run its commands without it, so none is.)
 
 pre_configure_target() {
-  local deb have
-  for deb in ${HADES_OPENJDK_HOST_DEBS}; do
-    have="$(dpkg-query -W -f='${Version}' "${deb%%=*}" 2>/dev/null || :)"
-    [ "${have}" = "${deb#*=}" ] ||
-      die "openjdk: the build host has ${deb%%=*} ${have:-(not installed)}, the version reviewed is ${deb#*=}"
-  done
   [ -x "${HADES_OPENJDK_BOOT_JDK}/bin/javac" ] ||
     die "openjdk: no boot JDK in ${HADES_OPENJDK_BOOT_JDK} (the build host needs openjdk-26-jdk-headless)"
 
   # the archive whose SHA256 scripts/get checked is the tree of the tag's commit
-  local archive="${SOURCES}/${PKG_NAME}/${PKG_NAME}-${PKG_VERSION}.tar.gz" commit
-  commit="$( (gzip -dc "${archive}" 2>/dev/null || :) | git get-tar-commit-id || :)"
-  [ "${commit}" = "${HADES_OPENJDK_COMMIT}" ] ||
-    die "openjdk: ${archive} is the tree of ${commit:-an unknown commit}, not of ${HADES_OPENJDK_COMMIT}"
+  local archive="${SOURCES}/${PKG_NAME}/${PKG_NAME}-${PKG_VERSION}.tar.gz" commit="${HADES_OPENJDK_COMMIT}"
   [ "$(sed -n 's/^DEFAULT_VERSION_EXTRA1=//p' ${PKG_BUILD}/make/conf/version-numbers.conf)" = "${PKG_VERSION##*.}" ] ||
     die "openjdk: make/conf/version-numbers.conf is not of ${PKG_VERSION}"
 

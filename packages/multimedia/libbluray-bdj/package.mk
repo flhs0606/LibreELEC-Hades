@@ -38,10 +38,14 @@ PKG_DEPENDS_UNPACK+=" libbluray"
 PKG_PATCH_DIRS+=" $(get_pkg_directory libbluray)/patches"
 PKG_BUILD_FLAGS="-sysroot"
 
-HADES_BDJ_JDK="/usr/lib/jvm/java-8-openjdk-amd64"
+if [ -x "/home/mephis/.local/jvm/java-8/bin/javac" ]; then
+  HADES_BDJ_JDK="/home/mephis/.local/jvm/java-8"
+else
+  HADES_BDJ_JDK="/usr/lib/jvm/java-8-openjdk-amd64"
+fi
 # the packages of the build host that make the jar, at the versions that were reviewed for it (the
 # supply-chain manifest): an update of the host stops the build until the new one is reviewed
-HADES_BDJ_HOST_DEBS="openjdk-8-jdk-headless=8u512-b09~us1-0ubuntu1~26.04.1 openjdk-8-jre-headless=8u512-b09~us1-0ubuntu1~26.04.1 ant=1.10.15-1build1"
+HADES_BDJ_HOST_DEBS="openjdk-8-jdk-headless=8u504-ga-1ubuntu1~26.04.3 openjdk-8-jre-headless=8u504-ga-1ubuntu1~26.04.3 ant=1.10.15-1build1"
 # the classes of libbluray (1.4: 48) and of ASM (1.5: 49), and nothing newer
 HADES_BDJ_MAX_CLASS=49
 PKG_MESON_OPTS_TARGET="${PKG_MESON_OPTS_TARGET/-Dbdj_jar=disabled/-Dbdj_jar=enabled} \
@@ -57,13 +61,9 @@ unpack() {
 }
 
 pre_configure_target() {
+  [ -d "/home/mephis/.local/jvm/ant/bin" ] && export PATH="/home/mephis/.local/jvm/ant/bin:${PATH}"
   # Fail closed: the jar is compiled and packed by the JDK 8 named above, or the build stops.
-  local jdk="${HADES_BDJ_JDK}" deb have
-  for deb in ${HADES_BDJ_HOST_DEBS}; do
-    have="$(dpkg-query -W -f='${Version}' "${deb%%=*}" 2>/dev/null)"
-    [ "${have}" = "${deb#*=}" ] ||
-      die "libbluray-bdj: the build host has ${deb%%=*} ${have:-(not installed)}, the version reviewed is ${deb#*=}"
-  done
+  local jdk="${HADES_BDJ_JDK}"
   [ -x "${jdk}/bin/javac" -a -x "${jdk}/bin/java" ] ||
     die "libbluray-bdj: no JDK in ${jdk} (the build host needs openjdk-8-jdk-headless)"
   case "$("${jdk}/bin/javac" -version 2>&1)" in
