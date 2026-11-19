@@ -1,0 +1,19 @@
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+--- 
++++ 
+@@ -3224,7 +3224,13 @@
+   // (Hades: profile 8.1 too where Dolby Vision goes out as HDR10+, DVPlusPossible(); not while
+   // the conversion is mapped to the display, which rebuilds every stream anyway, nor with the
+   // choices of the video that rebuild every stream, DVBRIDGE::RebuiltChoice())
+-  const ConversionSetting setting = ConversionSettingNow();
++  // Hades: frame-by-frame dynamic tone mapping to HDR takes the output: like the mapping of
++  // the display (videoscreen.hadesdvhdr10map) it is done to the reconstructed picture, with
++  // the residual of a full enhancement layer, whatever the conversion settings say for other
++  // streams (the SDR branch has its own way in, the tone mapping method of a reference
++  // display)
++  const ConversionSetting setting =
++      DVBRIDGE::DtmToHdr() ? ConversionSetting::EVERY : ConversionSettingNow();
+   return ConversionTargetOf(window->SupportsDVConversion(), window->SupportsDVConversionToSdr(),
+                             setting, IsReferenceToneMapMethod(toneMapMethod),
+                             GetOutputChoice(), stream.dovi.dv_profile,

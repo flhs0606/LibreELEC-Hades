@@ -1,0 +1,81 @@
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+--- 
++++ 
+@@ -4322,8 +4322,9 @@
+         <default>true</default>
+         <control type="toggle" />
+       </setting>
+-      <!-- Hades: taken over by videoscreen.hadesqualitypreset; kept, hidden, as the preset
+-           writes it through, and the engine still reads it -->
++      <!-- Hades: kept, hidden, as the engine still reads it: the frame-by-frame mapping to HDR
++           is the way this build carries the enhancement layer (its conversion keeps it always),
++           and the plain rebuild as HDR10 has no use for it -->
+       <setting id="videoscreen.hadesdvashdr10fel" type="boolean" parent="videoscreen.hadesdvashdr10" label="39991" help="39992">
+         <requirement>
+           <and>
+--- a/xbmc/settings/Settings.cpp
++++ b/xbmc/settings/Settings.cpp
+--- 
++++ 
+@@ -249,8 +249,8 @@
+ CDVEngineSettingsSync g_dvEngineSettingsSync;
+ 
+ // Hades: the quality preset (videoscreen.hadesqualitypreset) writes what it stands for through to
+-// the four settings of the engine that hold it; a manual change of one of them is only said in the
+-// log: the last one written wins
++// the three settings of the engine that hold it; a manual change of one of them is only said in
++// the log: the last one written wins
+ class CQualityPresetSync : public ISettingCallback
+ {
+ public:
+@@ -272,8 +272,7 @@
+     if (m_writing)
+       return;
+     for (const char* const id :
+-         {CSettings::SETTING_VIDEOSCREEN_HADESDVASHDR10FEL,
+-          CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER,
++         {CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER,
+           CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE,
+           CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE})
+       if (setting->GetId() == id)
+@@ -287,27 +286,24 @@
+ private:
+   void WriteThrough(CSettings& settings, int preset)
+   {
+-    // (the two higher presets turn the FEL reconstruction and the finer gamut table on, and the
+-    // composition stays with ETSI GS CCM 001; the highest locks the fidelity, so that no picture
++    // (the two higher presets turn the finer gamut table on, and the composition stays with
++    // ETSI GS CCM 001; the highest locks the fidelity, so that no picture
+     // is drawn with less than the film has. The standard preset takes the composition of
+     // libplacebo instead and locks the fidelity at level 1: measured on the slowest card this
+     // build is made for, that is what keeps a film with subtitles on the screen at every
+     // refresh)
+     const bool high = preset >= 1;
+     m_writing = true;
+-    settings.SetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVASHDR10FEL, high);
+     settings.SetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER, high ? 0 : 1);
+     settings.SetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE, high);
+     settings.SetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE,
+                     preset == 2 ? 1 : preset == 1 ? 0 : 2);
+     m_writing = false;
+-    CLog::Log(LOGINFO,
+-              "quality preset: {} (FEL reconstruction {}, gamut table {}, {} composition, "
+-              "fidelity {})",
++    CLog::Log(LOGINFO, "quality preset: {} (gamut table {}, {} composition, fidelity {})",
+               preset == 2   ? "ultra"
+               : preset == 1 ? "high"
+                             : "standard",
+-              high ? "on" : "off", high ? "fine" : "coarse",
++              high ? "fine" : "coarse",
+               high ? "ETSI GS CCM 001" : "libplacebo",
+               preset == 2   ? "locked"
+               : preset == 1 ? "automatic"
+@@ -931,7 +927,6 @@
+   GetSettingsManager()->RegisterCallback(
+       &g_qualityPresetSync,
+       {CSettings::SETTING_VIDEOSCREEN_HADESQUALITYPRESET,
+-       CSettings::SETTING_VIDEOSCREEN_HADESDVASHDR10FEL,
+        CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER,
+        CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE,
+        CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE});

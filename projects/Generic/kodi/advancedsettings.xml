@@ -1,0 +1,15 @@
+<advancedsettings version="1.0">
+  <video>
+    <!-- 1. Enable in-place GUI compositing directly in the transport packer -->
+    <dvguiinplace>true</dvguiinplace>
+
+    <!-- 2. Disable GUI tile cache to unlock PACK_GUI in-place bypass for dynamic subtitles -->
+    <dvguicache>false</dvguicache>
+
+    <!-- 3. Use compute shader for 4:2:2 chroma rows to reduce texture read bandwidth -->
+    <dvcomputerows>true</dvcomputerows>
+
+    <!-- 4. Use precomputed MMR lookup table to offload 3D polynomial math from GPU -->
+    <dvmmrtable>true</dvmmrtable>
+  </video>
+</advancedsettings>

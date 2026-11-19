@@ -1,0 +1,97 @@
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+--- 
++++ 
+@@ -24,6 +24,7 @@
+ #include "utils/HadesPlayerInfo.h"
+ #include "utils/SystemInfo.h"
+ #include "utils/log.h"
++#include "windowing/gbm/DVPassTimes.h"
+ 
+ #include <algorithm>
+ #include <atomic>
+@@ -1928,7 +1929,7 @@
+   return changes;
+ }
+ 
+-std::vector<dvbridge_pass_time> CDVBridgeGLES::TakePassTimes(unsigned int max)
++std::vector<dvbridge_pass_time> CDVBridgeGLES::TakePassTimes(unsigned int max) const
+ {
+   if (!m_passTimes)
+     return {};
+@@ -2319,6 +2320,12 @@
+   params.egl_display = eglGetCurrentDisplay();
+   params.egl_context = eglGetCurrentContext();
+   params.allow_software = allowSoftware;
++  // Hades: the GPU time of each pass of the conversion, where advancedsettings.xml asks for
++  // it (<video><dvpasstimes>true</dvpasstimes></video>), in the same way as the bridge of a
++  // native output initializes it (Initialize())
++  const auto component = CServiceBroker::GetSettingsComponent();
++  const bool passTimes = component && component->GetAdvancedSettings()->m_videoDVPassTimes;
++  params.gles_timer_queries = passTimes;
+   if (params.egl_context == EGL_NO_CONTEXT)
+     return Fail("egl-context");
+   // Kodi goes on drawing its frame after this, and libplacebo changes the GL state when it
+@@ -2346,6 +2353,22 @@
+   m_copier = dvbridge_gl_copier_create();
+   CLog::Log(LOGDEBUG, "DVBridge: GL initialized for output as HDR10 renderer={} copier={}",
+             m_renderer != nullptr, m_copier != nullptr);
++  // Hades: the times are collected for the line at the end of the conversion
++  // (LogConversion()); what the GPU cannot time is said here, once, as the native output
++  // says it
++  if (passTimes && m_renderer)
++  {
++    dvbridge_render_time_passes(m_renderer, true);
++    m_passTimes = true;
++    bool placebo = false;
++    bool own = false;
++    dvbridge_render_passes_timed(m_renderer, &placebo, &own);
++    CLog::Log(LOGINFO,
++              "DVBridge: the passes of the conversion are timed, as advancedsettings.xml "
++              "asks (dvpasstimes): libplacebo's {}, the bridge's own {}",
++              placebo ? "timed" : "not timed (no GL_EXT_disjoint_timer_query)",
++              own ? "timed" : "not timed (no GL_EXT_disjoint_timer_query)");
++  }
+   if (!m_renderer || !m_copier)
+     return Fail("renderer-or-copier-initialization");
+   return true;
+@@ -2639,6 +2662,15 @@
+                   ? "as SDR"
+                   : "as HDR10",
+               m_convertedFel, m_convertedReshaped, m_convertFailed);
++  // Hades: the GPU time of each pass of the conversion, in the words of the native output's
++  // 10-s line but once, for the whole conversion at its end: where a display takes no native
++  // Dolby Vision the conversion is the only way to watch one, and what it costs on a card is
++  // not seen anywhere else
++  if (m_passTimes && m_renderer)
++    if (const std::string passes = KODI::WINDOWING::GBM::CDVPassTimes::Line(
++            TakePassTimes(KODI::WINDOWING::GBM::CDVPassTimes::LOGGED));
++        !passes.empty())
++      CLog::Log(LOGINFO, "DVBridge: the conversion{}", passes);
+ }
+ 
+ void CDVBridgeGLES::SetConversionTarget(unsigned int framebuffer, bool limited)
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+--- 
++++ 
+@@ -301,7 +301,7 @@
+   //! (<video><dvpasstimes>true</dvpasstimes></video>, read when the bridge is first initialized): the
+   //! passes since the last call, the most time first, up to max (dvbridge_render_take_pass_times());
+   //! empty where the passes are not timed
+-  std::vector<dvbridge_pass_time> TakePassTimes(unsigned int max);
++  std::vector<dvbridge_pass_time> TakePassTimes(unsigned int max) const;
+   //! ... the times since the last call are not to be trusted (GL_GPU_DISJOINT_EXT): dropped
+   void PassTimesLost();
+   //! Hades: how the level 5 block that the display is sent describes what was drawn over the
+@@ -523,7 +523,9 @@
+                       int height,
+                       bool limited,
+                       const dvbridge_gl_rect* area = nullptr);
+-  //! What was reconstructed with this bridge, for the log
++  //! What was reconstructed with this bridge, for the log; with the GPU time of each pass of
++  //! the reconstruction where advancedsettings.xml asks for it (<video><dvpasstimes>true
++  //! </dvpasstimes></video>), once, at its end
+   void LogConversion() const;
+   //! Hades: the framebuffer that CopyConversion() copies the pictures that follow to, and the range
+   //! it writes (dvbridge_render_hdr10_store()): before PrepareConversion() or PreparePlain(), after

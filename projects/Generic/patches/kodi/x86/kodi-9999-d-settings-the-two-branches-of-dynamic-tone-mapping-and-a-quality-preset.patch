@@ -1,0 +1,454 @@
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+@@ -4459,6 +4459,241 @@
+         <control type="toggle" />
+       </setting>
+       </group>
++      <!-- Hades: frame-by-frame dynamic tone mapping: one of the two branches at most. The
++           pictures of every HDR video are measured on the GPU and mapped to the target chosen
++           here, whatever the display takes; while one is on, it takes the place of native Dolby
++           Vision output, HDR10 output and Kodi's own tone mapping -->
++      <group id="10" label="41854">
++        <setting id="videoscreen.hadesdtmsdr" type="boolean" label="41856" help="41857">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmhdr" operator="is">false</dependency>
++          </dependencies>
++          <level>1</level>
++          <default>false</default>
++          <control type="toggle" />
++        </setting>
++        <setting id="videoscreen.hadesdtmsdrwhite" type="integer" parent="hadesdtmsdr" label="41858" help="41859">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmsdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>500</default>
++          <constraints>
++            <minimum>100</minimum>
++            <step>10</step>
++            <maximum>1500</maximum>
++          </constraints>
++          <control type="spinner" format="integer" formatlabel="39838" />
++        </setting>
++        <setting id="videoscreen.hadesdtmsdrgamma" type="number" parent="hadesdtmsdr" label="41860" help="41861">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmsdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>1.8</default>
++          <constraints>
++            <minimum>1.8</minimum>
++            <step>0.1</step>
++            <maximum>2.4</maximum>
++          </constraints>
++          <control type="spinner" format="number" />
++        </setting>
++        <setting id="videoscreen.hadesdtmsdrgamut" type="integer" parent="hadesdtmsdr" label="41862" help="41863">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmsdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>1</default>
++          <constraints>
++            <options>
++              <option label="39842">1</option>
++              <option label="39841">0</option>
++              <option label="39843">2</option>
++            </options>
++          </constraints>
++          <control type="spinner" format="string" />
++        </setting>
++        <setting id="videoscreen.hadesdtmsdrcurve" type="integer" parent="hadesdtmsdr" label="41864" help="41865">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmsdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>1</default>
++          <constraints>
++            <options>
++              <option label="39847">1</option>
++              <option label="39846">0</option>
++              <option label="41460">2</option>
++            </options>
++          </constraints>
++          <control type="spinner" format="string" />
++        </setting>
++        <setting id="videoscreen.hadesdtmsdrrecovery" type="integer" parent="hadesdtmsdr" label="41866" help="41867">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmsdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>20</default>
++          <constraints>
++            <minimum>0</minimum>
++            <step>5</step>
++            <maximum>50</maximum>
++          </constraints>
++          <control type="spinner" format="integer" />
++        </setting>
++        <setting id="videoscreen.hadesdtmhdr" type="boolean" label="41868" help="41869">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmsdr" operator="is">false</dependency>
++          </dependencies>
++          <level>1</level>
++          <default>false</default>
++          <control type="toggle" />
++        </setting>
++        <setting id="videoscreen.hadesdtmhdrpeak" type="integer" parent="hadesdtmhdr" label="41870" help="41871">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmhdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>800</default>
++          <constraints>
++            <minimum>200</minimum>
++            <step>50</step>
++            <maximum>4000</maximum>
++          </constraints>
++          <control type="spinner" format="integer" formatlabel="39838" />
++        </setting>
++        <setting id="videoscreen.hadesdtmhdrgamut" type="integer" parent="hadesdtmhdr" label="41872" help="41873">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmhdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>1</default>
++          <constraints>
++            <options>
++              <option label="39842">1</option>
++              <option label="39841">0</option>
++            </options>
++          </constraints>
++          <control type="spinner" format="string" />
++        </setting>
++        <setting id="videoscreen.hadesdtmhdrcurve" type="integer" parent="hadesdtmhdr" label="41874" help="41875">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmhdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>1</default>
++          <constraints>
++            <options>
++              <option label="39847">1</option>
++              <option label="39846">0</option>
++              <option label="41460">2</option>
++            </options>
++          </constraints>
++          <control type="spinner" format="string" />
++        </setting>
++        <setting id="videoscreen.hadesdtmhdrrecovery" type="integer" parent="hadesdtmhdr" label="41876" help="41877">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable" setting="videoscreen.hadesdtmhdr" operator="is">true</dependency>
++          </dependencies>
++          <level>2</level>
++          <default>20</default>
++          <constraints>
++            <minimum>0</minimum>
++            <step>5</step>
++            <maximum>50</maximum>
++          </constraints>
++          <control type="spinner" format="integer" />
++        </setting>
++      </group>
++      <!-- Hades: the quality preset: how much of the graphics card's power is spent on the
++           picture (the composer, the gamut table and the fidelity step-down of the engine
++           settings) -->
++      <group id="11" label="41855">
++        <setting id="videoscreen.hadesqualitypreset" type="integer" label="41878" help="41879">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <level>1</level>
++          <default>0</default>
++          <constraints>
++            <options>
++              <option label="41880">0</option>
++              <option label="41881">1</option>
++              <option label="41882">2</option>
++            </options>
++          </constraints>
++          <control type="spinner" format="string" />
++        </setting>
++      </group>
+       <!-- Hades: the engine of native Dolby Vision output (CDVEngineSettings): each one is read when
+            native output starts, and its default is what native output does without it. All of them are for experts (a person who does not tinker
+            does not see this group: Hades chooses the way, the frame ahead and the step-down by itself)
+--- a/addons/resource.language.en_gb/resources/strings.po
++++ b/addons/resource.language.en_gb/resources/strings.po
+@@ -27663,6 +27663,181 @@
+ msgid "Hades lights only the display that shows the picture (System > Display > Monitor), and the sound goes to the audio output of that display, whatever number that output has today. Turn this on only if the sound goes to a device on another output of the graphics card, such as an AV receiver on its own HDMI output: the display of the audio output chosen above is then kept on, black, for its sound, and if it was off, it comes on with the next video that changes the display mode. Off by default."
+ msgstr ""
+ 
++#. Hades: group label of the frame-by-frame dynamic tone mapping settings
++#: System/settings/settings.xml
++msgctxt "#41854"
++msgid "Dynamic tone mapping"
++msgstr ""
++
++#. Hades: group label of the quality preset
++#: System/settings/settings.xml
++msgctxt "#41855"
++msgid "Picture quality"
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmsdr"
++#: System/settings/settings.xml
++msgctxt "#41856"
++msgid "Map every frame to SDR"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmsdr"
++#: System/settings/settings.xml
++msgctxt "#41857"
++msgid "The picture of every HDR video is measured frame by frame and mapped to the white, the gamma and the gamut chosen below, whatever the TV or projector takes. HDR videos then play with the lights of the room in mind instead of the mastering display's: on an SDR display, with HDR turned off, and on an HDR display by choice. While this is on, it takes the place of Dolby Vision output, HDR10 output and Kodi's own tone mapping."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmsdrwhite"
++#: System/settings/settings.xml
++msgctxt "#41858"
++msgid "Target white"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmsdrwhite"
++#: System/settings/settings.xml
++msgctxt "#41859"
++msgid "The white that the mapped picture is made for, in cd/m². 500 suits a bright room; a dark one takes 100 to 200. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmsdrgamma"
++#: System/settings/settings.xml
++msgctxt "#41860"
++msgid "Target gamma"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmsdrgamma"
++#: System/settings/settings.xml
++msgctxt "#41861"
++msgid "The gamma of the mapped picture. 1.8 suits a bright room; a dark one takes 2.2 to 2.4. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmsdrgamut"
++#: System/settings/settings.xml
++msgctxt "#41862"
++msgid "Target colour gamut"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmsdrgamut"
++#: System/settings/settings.xml
++msgctxt "#41863"
++msgid "The gamut that the mapped picture is made for: that of the display, or a wider one where its screen shows it. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmsdrcurve"
++#: System/settings/settings.xml
++msgctxt "#41864"
++msgid "Tone curve"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmsdrcurve"
++#: System/settings/settings.xml
++msgctxt "#41865"
++msgid "The curve that maps the picture: BT.2390 as Dolby Vision maps it, BT.2390 with libplacebo's knee, or the spline of the ITU's reference display. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmsdrrecovery"
++#: System/settings/settings.xml
++msgctxt "#41866"
++msgid "Contrast recovery"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmsdrrecovery"
++#: System/settings/settings.xml
++msgctxt "#41867"
++msgid "How much of the contrast that the frame-by-frame mapping takes from a dark scene is given back to it, in percent. 0 leaves the frame as the curve maps it; 20 keeps most of the life of a night scene. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmhdr"
++#: System/settings/settings.xml
++msgctxt "#41868"
++msgid "Map every frame to HDR"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmhdr"
++#: System/settings/settings.xml
++msgctxt "#41869"
++msgid "The picture of every HDR video is measured frame by frame and mapped to the peak and the gamut chosen below: an HDR10 output whose picture follows what the video shows, frame by frame, where its own metadata say less. While this is on, it takes the place of Dolby Vision output, HDR10 output and Kodi's own tone mapping."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmhdrpeak"
++#: System/settings/settings.xml
++msgctxt "#41870"
++msgid "Target display peak"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmhdrpeak"
++#: System/settings/settings.xml
++msgctxt "#41871"
++msgid "The peak that the mapped picture is made for, in cd/m², where the display's own peak is not taken: 800 suits a bright room. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmhdrgamut"
++#: System/settings/settings.xml
++msgctxt "#41872"
++msgid "Target colour gamut"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmhdrgamut"
++#: System/settings/settings.xml
++msgctxt "#41873"
++msgid "The gamut that the mapped picture is made for: that of the display, or a wider one where its screen shows it. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmhdrcurve"
++#: System/settings/settings.xml
++msgctxt "#41874"
++msgid "Tone curve"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmhdrcurve"
++#: System/settings/settings.xml
++msgctxt "#41875"
++msgid "The curve that maps the picture: BT.2390 as Dolby Vision maps it, BT.2390 with libplacebo's knee, or the spline of the ITU's reference display. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesdtmhdrrecovery"
++#: System/settings/settings.xml
++msgctxt "#41876"
++msgid "Contrast recovery"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesdtmhdrrecovery"
++#: System/settings/settings.xml
++msgctxt "#41877"
++msgid "How much of the contrast that the frame-by-frame mapping takes from a dark scene is given back to it, in percent. 0 leaves the frame as the curve maps it; 20 keeps most of the life of a night scene. Takes effect from the next video."
++msgstr ""
++
++#. Hades: setting label "videoscreen.hadesqualitypreset"
++#: System/settings/settings.xml
++msgctxt "#41878"
++msgid "Picture quality mode"
++msgstr ""
++
++#. Hades: setting help "videoscreen.hadesqualitypreset"
++#: System/settings/settings.xml
++msgctxt "#41879"
++msgid "How much of the graphics card's power is spent on the picture: Standard keeps a small card in step with the film, High spends more of a faster one, and Ultra takes a card of its own. Standard is what Hades plays without this setting."
++msgstr ""
++
++#. Hades: quality preset option 0 of "videoscreen.hadesqualitypreset"
++#: System/settings/settings.xml
++msgctxt "#41880"
++msgid "Standard"
++msgstr ""
++
++#. Hades: quality preset option 1 of "videoscreen.hadesqualitypreset"
++#: System/settings/settings.xml
++msgctxt "#41881"
++msgid "High"
++msgstr ""
++
++#. Hades: quality preset option 2 of "videoscreen.hadesqualitypreset"
++#: System/settings/settings.xml
++msgctxt "#41882"
++msgid "Ultra"
++msgstr ""
++
++
+ #. Hades: value of Kodi's tone mapping method (#36553) and of setting "videoscreen.hadesdvhdr10curve": the BT.2390 curve with libplacebo's default knee (KS = 2 maxLum - 1); translated in Estuary (#33460)
+ #: xbmc/video/dialogs/GUIDialogVideoSettings.cpp
+ #: system/settings/settings.xml
+--- a/xbmc/settings/Settings.h
++++ b/xbmc/settings/Settings.h
+@@ -478,6 +478,23 @@
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVSDRTARGET = "videoscreen.hadesdvsdrtarget";
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVSDRWHITE = "videoscreen.hadesdvsdrwhite";
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVSDRGAMMA = "videoscreen.hadesdvsdrgamma";
++  //! Hades: frame-by-frame dynamic tone mapping to SDR (System > Display): the branch and the
++  //! target it maps to, with its curve and its contrast recovery
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMSDR = "videoscreen.hadesdtmsdr";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMSDRWHITE = "videoscreen.hadesdtmsdrwhite";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMSDRGAMMA = "videoscreen.hadesdtmsdrgamma";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMSDRGAMUT = "videoscreen.hadesdtmsdrgamut";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMSDRCURVE = "videoscreen.hadesdtmsdrcurve";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMSDRRECOVERY = "videoscreen.hadesdtmsdrrecovery";
++  //! Hades: frame-by-frame dynamic tone mapping to HDR: the branch, the peak it maps to, its gamut,
++  //! its curve and its contrast recovery
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDR = "videoscreen.hadesdtmhdr";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRPEAK = "videoscreen.hadesdtmhdrpeak";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRGAMUT = "videoscreen.hadesdtmhdrgamut";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRCURVE = "videoscreen.hadesdtmhdrcurve";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRRECOVERY = "videoscreen.hadesdtmhdrrecovery";
++  //! Hades: the quality preset (Standard, High, Ultra): what it writes through is the engine's own
++  static constexpr auto SETTING_VIDEOSCREEN_HADESQUALITYPRESET = "videoscreen.hadesqualitypreset";
+   //! Hades: the peak that the content mapping v4.0 is decided against, set by hand (cd/m2)
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVCM40MANUAL = "videoscreen.hadesdvcm40manual";
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVCM40PEAK = "videoscreen.hadesdvcm40peak";

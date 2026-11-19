@@ -1,0 +1,1673 @@
+diff --git a/addons/resource.language.en_gb/resources/strings.po b/addons/resource.language.en_gb/resources/strings.po
+index 99ef974..b3ed82d 100644
+--- a/addons/resource.language.en_gb/resources/strings.po
++++ b/addons/resource.language.en_gb/resources/strings.po
+@@ -27837,6 +27837,18 @@ msgctxt "#41882"
+ msgid "Ultra"
+ msgstr ""
+ 
++#. Hades: label of setting "videoscreen.hadesdvguipackfold" (group "Picture quality")
++#: System/settings/settings.xml
++msgctxt "#41888"
++msgid "Smooth menus and subtitles"
++msgstr ""
++
++#. Hades: help of setting "videoscreen.hadesdvguipackfold"
++#: System/settings/settings.xml
++msgctxt "#41889"
++msgid "How the menus, the subtitles and every other element of the interface is drawn over a native Dolby Vision picture. On (the default): blended by the packing of the transport, which reads the picture anyway, measured the steadier pace of the two. Off: composited into the picture by a pass of its own, as the builds before drew them. The picture is the same either way, and a change takes effect at once."
++msgstr ""
++
+ 
+ #. Hades: value of Kodi's tone mapping method (#36553) and of setting "videoscreen.hadesdvhdr10curve": the BT.2390 curve with libplacebo's default knee (KS = 2 maxLum - 1); translated in Estuary (#33460)
+ #: xbmc/video/dialogs/GUIDialogVideoSettings.cpp
+diff --git a/system/language-overrides/resource.language.zh_cn.po b/system/language-overrides/resource.language.zh_cn.po
+index 84c594c..a095cdb 100644
+--- a/system/language-overrides/resource.language.zh_cn.po
++++ b/system/language-overrides/resource.language.zh_cn.po
+@@ -140,3 +140,11 @@ msgstr "快速（无增强层）"
+ msgctxt "#41887"
+ msgid "Fast, full enhancement layer"
+ msgstr "快速（完整增强层）"
++
++msgctxt "#41888"
++msgid "Smooth menus and subtitles"
++msgstr "菜单和字幕更流畅"
++
++msgctxt "#41889"
++msgid "How the menus, the subtitles and every other element of the interface is drawn over a native Dolby Vision picture. On (the default): blended by the packing of the transport, which reads the picture anyway, measured the steadier pace of the two. Off: composited into the picture by a pass of its own, as the builds before drew them. The picture is the same either way, and a change takes effect at once."
++msgstr "Kodi的菜单、字幕和其它界面元素画在原生杜比视界画面上的方式。开启（默认）：由传输的打包过程一并混合——它本来就要读取整个画面，两者中实测更平稳；关闭：由单独的合成过程先画进画面，与之前的版本相同。两种方式的画面完全一样，改动立即生效。"
+diff --git a/system/settings/settings.xml b/system/settings/settings.xml
+index a108c02..3c6284c 100644
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+@@ -3436,6 +3436,21 @@
+           </constraints>
+           <control type="spinner" format="string" />
+         </setting>
++        <!-- Hades: the menus and subtitles of Kodi over a native Dolby Vision picture drawn by
++             the packing of the transport itself (on: the steadier pace of the two, measured) or
++             by the composite pass of its own (off: as the builds before); the picture the same.
++             A change takes effect at once, not from the next video. -->
++        <setting id="videoscreen.hadesdvguipackfold" type="boolean" label="41888" help="41889">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <level>1</level>
++          <default>false</default>
++          <control type="toggle" />
++        </setting>
+       </group>
+       <group id="10" label="41854">
+         <setting id="videoscreen.hadesdtmfastmode" type="integer" label="41883" help="41884">
+diff --git a/system/shaders/GLES/2.0/gles_gui_composite.frag b/system/shaders/GLES/2.0/gles_gui_composite.frag
+index c5a7f90..27165cc 100644
+--- a/system/shaders/GLES/2.0/gles_gui_composite.frag
++++ b/system/shaders/GLES/2.0/gles_gui_composite.frag
+@@ -32,6 +32,12 @@ uniform float u_ootfGamma;      // HLG: OOTF gamma (1.2 for BT.2100 1000-nit ref
+ // against the reference white (what the degamma LUT has baked in)
+ uniform float u_pqPeak;
+ uniform float u_hlgWhite;
++// Hades: grey - nearly all of the GUI: its text, bars and shades - by one lookup of a table the
++// CPU filled with the arithmetic below (the matrix of BT.709 -> BT.2020 leaves grey grey), where
++// that table was made; a pixel a code of grey off reads it as well, for the matrix would move it
++// by less than the rounding of the packing
++uniform sampler2D u_lutGray; // the sRGB code of grey -> its PQ signal (256 entries, exact a code)
++uniform int u_grayFast; // 1 where that table exists; 0: the arithmetic below for every pixel
+ #endif
+ 
+ // BT.709 -> BT.2020 color space conversion matrix (applied in linear light)
+@@ -82,6 +88,19 @@ void main()
+     discard;
+ 
+ #if defined(KODI_GUI_EXACT)
++  // Hades: grey by one lookup (u_lutGray): an achromatic pixel returns the signal of its code,
++  // and the powers are not run for it; white antialiased text is grey this way, for the alpha of
++  // the edge carries the coverage, and the colour under the edge is grey itself
++  if (u_grayFast != 0 && u_ootfGamma <= 0.0)
++  {
++    vec3 g = gui.rgb;
++    if (max(max(g.r, g.g), g.b) - min(min(g.r, g.g), g.b) < 0.75 / 255.0)
++    {
++      float y = texture2D(u_lutGray, vec2(g.r, 0.5)).r;
++      gl_FragColor = vec4(vec3(y), gui.a * gui.a);
++      return;
++    }
++  }
+   vec3 linear = srgbToLinear(clamp(gui.rgb, 0.0, 1.0));
+   if (u_ootfGamma > 0.0)
+     linear *= u_hlgWhite;
+diff --git a/tools/dvbridge/dvbridge_gl_pack.c b/tools/dvbridge/dvbridge_gl_pack.c
+index a3e17d4..3c25ab4 100644
+--- a/tools/dvbridge/dvbridge_gl_pack.c
++++ b/tools/dvbridge/dvbridge_gl_pack.c
+@@ -25,6 +25,14 @@ void dvbridge_gl_drain_errors(void)
+ struct dvbridge_gl_packer {
+     GLuint program, vao, sampler;
+     GLint input, words, count, flip;
++    /* Hades: the GUI over the picture, blended by the shader (pack_gles300.frag: gui_input,
++     * gui_pq_peak), as the composite pass blended it into the picture before */
++    GLint gui, gui_peak;
++    /* Hades: the grey of the GUI by one lookup (pack_gles300.frag: gui_lut_gray), an entry a
++     * code of its 8 bits, baked for the peak it last was */
++    GLint gui_gray;
++    GLuint gui_gray_tex;
++    float gui_gray_peak;
+     bool quad;
+ };
+ 
+@@ -79,6 +87,59 @@ static bool make_objects(GLuint *vao, GLuint *sampler)
+     return made;
+ }
+ 
++/* Hades: IEC 61966-2-1 sRGB EOTF and SMPTE ST 2084, as the composite's shader has them
++ * (gles_gui_composite.frag), for the GUI's tables of a code */
++static float gui_srgb_to_linear(float v)
++{
++    return v <= 0.04045f ? v / 12.92f : powf((v + 0.055f) / 1.055f, 2.4f);
++}
++
++static float gui_forward_pq(float L)
++{
++    const float Lm1 = powf(L, 0.1593017578125f);
++    return powf((0.8359375f + 18.8515625f * Lm1) / (1.0f + 18.6875f * Lm1), 78.84375f);
++}
++
++/* Hades: a table of 256 entries, one a code of the GUI's 8 bits, in 32-bit floats where the GPU
++ * takes them (half floats as it does not): read exact, a texel of the index, which no filtering
++ * of the texture takes part in. Filled by gui_fill_gray(). */
++static GLuint gui_make_lut(void)
++{
++    GLuint tex = 0;
++    glGenTextures(1, &tex);
++    if (!tex)
++        return 0;
++    static const float zero[256];
++    glBindTexture(GL_TEXTURE_2D, tex);
++    dvbridge_gl_drain_errors();
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, 256, 1, 0, GL_RED, GL_FLOAT, zero);
++    if (glGetError() != GL_NO_ERROR) {
++        dvbridge_gl_drain_errors();
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, 256, 1, 0, GL_RED, GL_FLOAT, zero);
++        if (glGetError() != GL_NO_ERROR) {
++            dvbridge_gl_drain_errors();
++            glDeleteTextures(1, &tex);
++            return 0;
++        }
++    }
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    return tex;
++}
++
++/* Hades: the signal of grey, code for code, the peak the GUI's white goes by (the matrix of
++ * BT.709 -> BT.2020 leaves grey grey: its rows add to 1) */
++static void gui_fill_gray(GLuint tex, float peak)
++{
++    float y[256];
++    for (int i = 0; i < 256; ++i)
++        y[i] = gui_forward_pq(gui_srgb_to_linear(i / 255.0f) * peak);
++    glBindTexture(GL_TEXTURE_2D, tex);
++    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RED, GL_FLOAT, y);
++}
++
+ /* Hades: whether fragment shaders have the quad operations of GL_KHR_shader_subgroup, asked as
+  * dvbridge_render.c asks it for the direct way. */
+ bool dvbridge_gl_fragment_quad(void)
+@@ -131,7 +192,11 @@ static bool build_program(struct dvbridge_gl_packer *p, const char *vertex, cons
+     p->words = glGetUniformLocation(p->program, "metadata_words");
+     p->count = glGetUniformLocation(p->program, "packet_count");
+     p->flip = glGetUniformLocation(p->program, "flip_y");
+-    if (!linked || p->input < 0 || p->words < 0 || p->count < 0 || p->flip < 0) {
++    p->gui = glGetUniformLocation(p->program, "gui_input");
++    p->gui_peak = glGetUniformLocation(p->program, "gui_pq_peak");
++    p->gui_gray = glGetUniformLocation(p->program, "gui_lut_gray");
++    if (!linked || p->input < 0 || p->words < 0 || p->count < 0 || p->flip < 0 ||
++        p->gui < 0 || p->gui_peak < 0 || p->gui_gray < 0) {
+         glDeleteProgram(p->program);
+         p->program = 0;
+         return false;
+@@ -155,6 +220,14 @@ static struct dvbridge_gl_packer *create_packer(const char *vertex, const char *
+         dvbridge_gl_packer_destroy(p);
+         return NULL;
+     }
++    /* Hades: the grey table, made with the packer (its shader reads it; filled again in pack()
++     * for the peak that changed) */
++    p->gui_gray_tex = gui_make_lut();
++    if (!p->gui_gray_tex) {
++        dvbridge_gl_packer_destroy(p);
++        return NULL;
++    }
++    glBindTexture(GL_TEXTURE_2D, 0);
+     return p;
+ }
+ 
+@@ -172,6 +245,7 @@ void dvbridge_gl_packer_destroy(struct dvbridge_gl_packer *p)
+ {
+     if (!p)
+         return;
++    glDeleteTextures(1, &p->gui_gray_tex);
+     glDeleteVertexArrays(1, &p->vao);
+     glDeleteSamplers(1, &p->sampler);
+     glDeleteProgram(p->program);
+@@ -475,15 +549,18 @@ restore:
+ }
+ 
+ static bool pack(struct dvbridge_gl_packer *p, unsigned texture, unsigned framebuffer, int width,
+-                 int height, const uint32_t packets[512], unsigned count, bool flip);
++                 int height, const uint32_t packets[512], unsigned count, bool flip,
++                 unsigned gui_texture, float gui_peak);
+ 
+ bool dvbridge_gl_pack(struct dvbridge_gl_packer *p, unsigned texture, unsigned framebuffer,
+-                     int width, int height, const uint32_t packets[512], unsigned count, bool flip)
++                     int width, int height, const uint32_t packets[512], unsigned count, bool flip,
++                     unsigned gui_texture, float gui_peak)
+ {
+     /* (16 packets of 32 words: dvbridge_packets()) */
+     if (!p || !texture || !packets || !count || count > 16 || width != 3840 || height != 2160)
+         return false;
+-    return pack(p, texture, framebuffer, width, height, packets, count, flip);
++    return pack(p, texture, framebuffer, width, height, packets, count, flip, gui_texture,
++                gui_peak);
+ }
+ 
+ bool dvbridge_gl_pack_no_metadata(struct dvbridge_gl_packer *p, unsigned texture,
+@@ -492,11 +569,12 @@ bool dvbridge_gl_pack_no_metadata(struct dvbridge_gl_packer *p, unsigned texture
+     static const uint32_t none[512];
+     if (!p || !texture || width != 3840 || height != 2160)
+         return false;
+-    return pack(p, texture, framebuffer, width, height, none, 0, flip);
++    return pack(p, texture, framebuffer, width, height, none, 0, flip, 0, 0.0f);
+ }
+ 
+ static bool pack(struct dvbridge_gl_packer *p, unsigned texture, unsigned framebuffer, int width,
+-                 int height, const uint32_t packets[512], unsigned count, bool flip)
++                 int height, const uint32_t packets[512], unsigned count, bool flip,
++                 unsigned gui_texture, float gui_peak)
+ {
+     /* Errors left by earlier, unrelated GL work are not ours: clear them (bounded), so that the
+      * checks below see only what the pack raised. */
+@@ -533,6 +611,24 @@ static bool pack(struct dvbridge_gl_packer *p, unsigned texture, unsigned frameb
+     glBindSampler(0, p->sampler);
+     glBindTexture(GL_TEXTURE_2D, texture);
+     glUniform1i(p->input, 0);
++    /* Hades: the GUI over the picture, on the unit beside the picture's (the shader fetches it
++     * only where a GUI is composited: gui_pq_peak above 0; the fetch is exact a texel, which
++     * needs no sampler of its own). The grey table is filled again for a peak that changed (it
++     * binds its texture; the binds below take the units back), and the tables sit on the units
++     * 2 and 3, read exact a texel of the index. */
++    const float gui_peak_now = gui_texture && gui_peak > 0.0f ? gui_peak : 0.0f;
++    if (gui_peak_now > 0.0f && gui_peak_now != p->gui_gray_peak) {
++        gui_fill_gray(p->gui_gray_tex, gui_peak_now);
++        p->gui_gray_peak = gui_peak_now;
++    }
++    glActiveTexture(GL_TEXTURE1);
++    glBindTexture(GL_TEXTURE_2D, gui_texture);
++    glUniform1i(p->gui, 1);
++    glUniform1f(p->gui_peak, gui_peak_now);
++    glActiveTexture(GL_TEXTURE2);
++    glBindTexture(GL_TEXTURE_2D, p->gui_gray_tex);
++    glUniform1i(p->gui_gray, 2);
++    glActiveTexture(GL_TEXTURE0);
+     glUniform4uiv(p->words, 128, packets);
+     glUniform1ui(p->count, count);
+     glUniform1ui(p->flip, flip);
+diff --git a/tools/dvbridge/dvbridge_gl_pack.h b/tools/dvbridge/dvbridge_gl_pack.h
+index 492d5d5..6f168d5 100644
+--- a/tools/dvbridge/dvbridge_gl_pack.h
++++ b/tools/dvbridge/dvbridge_gl_pack.h
+@@ -33,9 +33,14 @@ bool dvbridge_gl_fragment_quad(void);
+ /* Current GLES3 context; PQ texture and destination must both be 3840x2160.
+  * Destination must be linear RGB8/RGBA8, without multisampling.
+  * packets: as dvbridge_packets() gives them, count of them (1 to 16). */
++/* Hades: gui_texture, the GUI of Kodi over the picture (0: none), and gui_pq_peak, the GUI white
++ * in PQ units its conversion has baked in (as the composite's LUTs had it): the shader blends it
++ * over every pixel it packs (pack_gles300.frag), as the composite pass blended it into the
++ * picture. */
+ bool dvbridge_gl_pack(struct dvbridge_gl_packer *packer, unsigned pq_texture,
+                      unsigned framebuffer, int width, int height,
+-                     const uint32_t packets[512], unsigned count, bool flip_y);
++                     const uint32_t packets[512], unsigned count, bool flip_y,
++                     unsigned gui_texture, float gui_pq_peak);
+ /* Hades: Dolby Vision Low-Latency: the same packing, with no metadata in the chroma LSBs (no packet:
+  * the picture's own bits), for a picture that is already mapped to the display */
+ #define DVBRIDGE_GL_PACK_NO_METADATA 1
+diff --git a/tools/dvbridge/dvbridge_render.c b/tools/dvbridge/dvbridge_render.c
+index 5699815..e076c31 100644
+--- a/tools/dvbridge/dvbridge_render.c
++++ b/tools/dvbridge/dvbridge_render.c
+@@ -162,6 +162,9 @@ struct dvbridge_renderer {
+      * out so; source_why: why it does not while it is asked for. */
+     bool source_wanted, source;
+     const char *source_why;
++    /* Hades: the picture that Kodi draws over (rgb) in 16-bit codes where it serves (half the
++     * bytes of the 32-bit floats, the same codes; picture16_take()): asked for, and it is one */
++    bool picture16_wanted, picture16;
+     /* Hades: the last picture prepared is scaled, and goes out in the source transport at level 0 of
+      * the step-down; from level 1 on it goes out converted (dvbridge_render_step_levels()) */
+     bool scaled_source;
+@@ -719,6 +722,18 @@ static struct dvbridge_renderer *create_renderer(pl_gpu gpu, pl_log log, bool tr
+     r->context = dvbridge_create();
+     pl_fmt fmt = pl_find_fmt(gpu, PL_FMT_FLOAT, 4, 32, 32,
+                              PL_FMT_CAP_RENDERABLE | PL_FMT_CAP_SAMPLEABLE);
++    /* Hades: the picture that Kodi draws over in 16-bit codes, the same codes at half the bytes:
++     * where this GPU renders to one, and until the source transport is asked for, whose passes
++     * read the alpha of the picture as their 2.0 (PICTURE_ALPHA), which the 16 bits cannot hold
++     * (picture16_take() takes the floats again there) */
++    r->picture16_wanted = true;
++    pl_fmt const codes16 = pl_find_fmt(gpu, PL_FMT_UNORM, 4, 16, 16,
++                                       PL_FMT_CAP_RENDERABLE | PL_FMT_CAP_SAMPLEABLE);
++    if (codes16)
++    {
++        fmt = codes16;
++        r->picture16 = true;
++    }
+     if (fmt && transport)
+         r->rgb = pl_tex_create(gpu, pl_tex_params(.w = 3840, .h = 2160, .format = fmt,
+             .sampleable = true, .renderable = true, .blit_dst = true));
+@@ -1492,6 +1507,15 @@ static bool render_source(struct dvbridge_renderer *r, const struct pl_frame *so
+          * first 64 messages and one in 1000 after them, which then took those of every other
+          * failure of libplacebo with them). A texture has the framebuffer that libplacebo made
+          * with it; one without either is not packed into. */
++        /* Hades: the other way of a frame traced the same (drawn into a target, not the float
++         * picture that Kodi draws over) */
++        {
++            static unsigned traced = 0;
++            ++traced;
++            if (traced <= 6 || traced % 600 == 0)
++                fprintf(stderr, "DV render: a target packed (no. %u, drawn_gui %u)\n", traced,
++                        r->drawn_gui);
++        }
+         if (target != r->window)
+             ok = pl_opengl_unwrap(r->gpu, target, NULL, NULL, &fbo) && fbo;
+         ok = ok && source_pack(r, 0, fbo, flip);
+@@ -1502,6 +1526,16 @@ static bool render_source(struct dvbridge_renderer *r, const struct pl_frame *so
+         dvbridge_source_drawn(r->source_packer, r->drawn_gui, r->drawn_w, r->drawn_h);
+         /* Hades: the GUI read in place by the packer where it is asked (then without the GUI
+          * cache, which reads the picture with the GUI composited over it) */
++        /* Hades: the ask traced (to the journal): whether the texture and the ask of this frame
++         * reached the pack, told for the first frames and then once every ten seconds */
++        {
++            static unsigned traced = 0;
++            ++traced;
++            if (traced <= 6 || traced % 600 == 0)
++                fprintf(stderr, "DV render: the float picture packed (no. %u, drawn_gui %u, "
++                                "inplace_peak %.4f)\n",
++                        traced, r->drawn_gui, r->inplace_peak);
++        }
+         const float inplace = r->drawn_gui ? r->inplace_peak : 0.0f;
+         dvbridge_source_gui_in_place(r->source_packer, inplace);
+         /* (Hades: and the key of its composite, for the GUI cache) */
+@@ -1908,6 +1942,16 @@ bool dvbridge_render_rgb(struct dvbridge_renderer *r, const struct pl_frame *sou
+     restore_gl_state(&state);
+     /* Hades: what was to be drawn over this frame (dvbridge_render_set_drawn()) is this frame's */
+     if (r) {
++        /* Hades: what a render really consumed told (to the journal): a pack that ends without it,
++         * after Kodi handed the GUI over, is the ask lost between the two */
++        static unsigned consumed = 0;
++        if (r->drawn_gui || r->inplace_peak > 0.0f)
++        {
++            ++consumed;
++            if (consumed <= 6 || consumed % 600 == 0)
++                fprintf(stderr, "DV render: the drawn GUI consumed (no. %u, gui %u, peak %.4f)\n",
++                        consumed, r->drawn_gui, r->inplace_peak);
++        }
+         r->drawn_gui = 0;
+         r->inplace_peak = 0.0f;
+     }
+@@ -3362,7 +3406,7 @@ bool dvbridge_render_reference(struct dvbridge_renderer *ref, const struct dvbri
+         /* packed in its transport: by packer where it goes out converted. Nothing is drawn over
+          * its picture (a frame with GUI elements is not checked): the film's active area */
+         ok = ok && dvbridge_render_pack(ref, packer, framebuffer, 3840, 2160, true,
+-                                        DVBRIDGE_COVER_NONE);
++                                        DVBRIDGE_COVER_NONE, 0, 0.0f);
+     }
+     if (ok && packets && !ref->low_latency)
+         dvbridge_packets(ref->pending, packets);
+@@ -3553,8 +3597,8 @@ int dvbridge_render_warm(struct dvbridge_renderer *r, const struct pl_frame *sou
+                          * target of the frames, which the first one writes whole. With what is
+                          * over the bars measured, as with the GUI over the picture: the program of
+                          * that measurement is made too (the packer's are the same either way) */
+-                        packed_once = dvbridge_render_pack(r, packer, framebuffer, 3840, 2160, true,
+-                                                           DVBRIDGE_COVER_MEASURE);
++                        packed_once = dvbridge_render_pack(r, packer, framebuffer, 3840, 2160,
++                                                           true, DVBRIDGE_COVER_MEASURE, 0, 0.0f);
+                     }
+                 } else {
+                     ok = dvbridge_render_packed(r, frame, metadata, bytes, pts, frame_el, geometry,
+@@ -3592,7 +3636,7 @@ int dvbridge_render_warm(struct dvbridge_renderer *r, const struct pl_frame *sou
+             const bool ok =
+                 dvbridge_render_rgb(r, source, metadata, bytes, pts, el_pts, geometry) &&
+                 (!packer || dvbridge_render_pack(r, packer, framebuffer, 3840, 2160, true,
+-                                                 DVBRIDGE_COVER_MEASURE));
++                                                 DVBRIDGE_COVER_MEASURE, 0, 0.0f));
+             r->gui_level = level;
+             glFinish();
+             done.made += ok;
+@@ -3612,10 +3656,57 @@ int dvbridge_render_warm(struct dvbridge_renderer *r, const struct pl_frame *sou
+     return done.made;
+ }
+ 
++/* Hades: the picture that Kodi draws over (r->rgb) taken again in the form that serves: 16-bit
++ * codes where they are asked for and the source transport does not take the picture, the 32-bit
++ * floats otherwise. The codes are the same either way; the alpha of the picture, which the level 5
++ * measurement reads (dvbridge_source_cover()), is 1.0 for a pixel that nothing is drawn over in
++ * the 16 bits and 2.0 in the floats (dvbridge_source_picture_alpha()). */
++static void picture16_take(struct dvbridge_renderer *r)
++{
++    const bool wanted = r->picture16_wanted && !r->source_wanted;
++    if (wanted == r->picture16)
++        return;
++    pl_fmt fmt = wanted ? pl_find_fmt(r->gpu, PL_FMT_UNORM, 4, 16, 16,
++                                      PL_FMT_CAP_RENDERABLE | PL_FMT_CAP_SAMPLEABLE)
++                        : pl_find_fmt(r->gpu, PL_FMT_FLOAT, 4, 32, 32,
++                                      PL_FMT_CAP_RENDERABLE | PL_FMT_CAP_SAMPLEABLE);
++    pl_tex made = fmt ? pl_tex_create(r->gpu, pl_tex_params(.w = 3840, .h = 2160, .format = fmt,
++                               .sampleable = true, .renderable = true, .blit_dst = true))
++                      : NULL;
++    if (made)
++    {
++        pl_tex_destroy(r->gpu, &r->rgb);
++        r->rgb = made;
++        r->picture16 = wanted;
++        r->rgb_clean = false; /* (a new picture: what is outside the place of the next one is not
++                                  known to be black, as a new texture) */
++        dvbridge_source_picture_alpha(r->source_packer, wanted ? 1.0f : 2.0f);
++    }
++    /* (a 16-bit one that this GPU cannot make: the floats as they are, asked again at the next
++     * output) */
++}
++
+ void dvbridge_render_use_source_transport(struct dvbridge_renderer *r, bool use)
+ {
+     if (r)
++    {
+         r->source_wanted = use;
++        picture16_take(r);
++    }
++}
++
++void dvbridge_render_use_picture16(struct dvbridge_renderer *r, bool use)
++{
++    if (r)
++    {
++        r->picture16_wanted = use;
++        picture16_take(r);
++    }
++}
++
++bool dvbridge_render_picture16(const struct dvbridge_renderer *r)
++{
++    return r && r->picture16;
+ }
+ 
+ void dvbridge_render_use_ipt(struct dvbridge_renderer *r, bool use)
+@@ -3852,8 +3943,18 @@ bool dvbridge_render_source_scales(const struct dvbridge_renderer *r, struct dvb
+                                         g.height, NULL);
+ }
+ 
++/* Hades: whether the pack of the frame that is prepared would take the GUI over its picture
++ * (dvbridge_render_pack(): the converted transport, not the source transport, Low-Latency or the
++ * tunnel), for Kodi to hand it the GUI instead of compositing the GUI into the picture itself */
++bool dvbridge_render_pack_takes_gui(const struct dvbridge_renderer *r)
++{
++    return r && r->ready && !r->packed && r->pending && !r->source && !r->low_latency &&
++           !r->tunnel_frame;
++}
++
+ bool dvbridge_render_pack(struct dvbridge_renderer *r, struct dvbridge_gl_packer *packer,
+-                          unsigned framebuffer, int width, int height, bool flip, int cover)
++                          unsigned framebuffer, int width, int height, bool flip, int cover,
++                          unsigned gui_texture, float gui_peak)
+ {
+     if (r)
+         r->gui_drawn = 0; /* (Hades: until a pack in the source transport says otherwise) */
+@@ -3892,7 +3993,8 @@ bool dvbridge_render_pack(struct dvbridge_renderer *r, struct dvbridge_gl_packer
+         unsigned count = 0;
+         const uint32_t *packets = dvbridge_packets(r->pending, &count);
+         timer_begin(r, TIMER_PACK_CONVERTED);
+-        const bool packed = dvbridge_gl_pack(packer, rgb, framebuffer, width, height, packets, count, flip);
++        const bool packed = dvbridge_gl_pack(packer, rgb, framebuffer, width, height, packets,
++                                             count, flip, gui_texture, gui_peak);
+         timer_end(r, TIMER_PACK_CONVERTED);
+         /* Hades: a frame sent converted at level 1 of the conversion under the GUI */
+         r->gui_drawn = packed && r->gui_converted ? 1 : 0;
+diff --git a/tools/dvbridge/dvbridge_render.h b/tools/dvbridge/dvbridge_render.h
+index 9fdcb51..00d786c 100644
+--- a/tools/dvbridge/dvbridge_render.h
++++ b/tools/dvbridge/dvbridge_render.h
+@@ -579,6 +579,10 @@ int dvbridge_render_warm(struct dvbridge_renderer *renderer, const struct pl_fra
+  * the renderer): reconstructed and converted to BT.2020 YCbCr, as before. */
+ #define DVBRIDGE_RENDER_SOURCE 1
+ void dvbridge_render_use_source_transport(struct dvbridge_renderer *renderer, bool use);
++/* Hades: the picture that Kodi draws over in 16-bit codes where it serves (the same codes at half
++ * the bytes of the 32-bit floats; not with the source transport) */
++void dvbridge_render_use_picture16(struct dvbridge_renderer *renderer, bool use);
++bool dvbridge_render_picture16(const struct dvbridge_renderer *renderer);
+ /* Hades: with the source transport, a picture in YCbCr whose RGBtoLMS is that of BT.2020 (profiles 7
+  * and 8) goes out in IPT-PQ-c2, as licensed players are reported to send it (dvbridge_source_to_ipt(),
+  * dvbridge_ipt.h), below step-down level 3; false: as composed. Off by default. ipt: the last picture
+@@ -725,7 +729,13 @@ bool dvbridge_render_source_scales(const struct dvbridge_renderer *renderer,
+ #define DVBRIDGE_COVER_BARS 2
+ struct dvbridge_gl_packer;
+ bool dvbridge_render_pack(struct dvbridge_renderer *renderer, struct dvbridge_gl_packer *packer,
+-                          unsigned framebuffer, int width, int height, bool flip_y, int cover);
++                          unsigned framebuffer, int width, int height, bool flip_y, int cover,
++                          unsigned gui_texture, float gui_pq_peak);
++/* Hades: whether the pack of the frame that is prepared would take the GUI over its picture (the
++ * converted transport), for the caller to hand it the GUI (dvbridge_render_pack()) instead of
++ * compositing the GUI into the picture itself: the pass of the composite is not run then */
++#define DVBRIDGE_RENDER_PACK_TAKES_GUI 1
++bool dvbridge_render_pack_takes_gui(const struct dvbridge_renderer *renderer);
+ /* Hades: a frame of graphics alone, without a picture (Kodi's menus in Dolby Vision, videoscreen.hadesdvmenus):
+  * nothing is composed. The transport picture is made black (PQ 0, and the alpha of a pixel that nothing is drawn
+  * over) for the caller to draw the GUI into (dvbridge_render_texture()), and the frame is made with metadata,
+diff --git a/tools/dvbridge/dvbridge_source.c b/tools/dvbridge/dvbridge_source.c
+index 0c8fe6b..12282b3 100644
+--- a/tools/dvbridge/dvbridge_source.c
++++ b/tools/dvbridge/dvbridge_source.c
+@@ -1341,6 +1341,7 @@ static const char COVER[] =
+     "precision highp int;\n"
+     "uniform highp sampler2D drawn;\n"
+     "uniform ivec4 active_rect;\n" /* x0, y0, x1, y1 */
++    "uniform float picture_alpha;\n" /* 2.0 or, in 16-bit codes, 1.0 (dvbridge_source_picture_alpha()) */
+     "uniform highp sampler2D drawn_tiles;\n"
+     "uniform int tiles_mode;\n"
+     "out vec4 color;\n"
+@@ -1356,7 +1357,7 @@ static const char COVER[] =
+     "            for (int x = b0.x; x < b0.x + 4; ++x)\n"
+     /* a pixel of the bars: beyond an edge of the active picture */
+     "                if ((x < active_rect.x || x >= active_rect.z || y < active_rect.y || y >= active_rect.w) &&\n"
+-    "                    texelFetch(drawn, ivec2(x, y), 0).a != 2.0)\n"
++    "                    texelFetch(drawn, ivec2(x, y), 0).a != picture_alpha)\n"
+     "                    edges = max(edges, vec4(x < active_rect.x, x >= active_rect.z, y < active_rect.y,\n"
+     "                                            y >= active_rect.w));\n"
+     "    color = edges;\n"
+@@ -1848,6 +1849,10 @@ struct dvbridge_source_packer {
+     GLuint pack, picture, resite, rows, cover, vao, sampler;
+     struct texture resited, chroma, edges;
+     GLint cover_drawn, cover_active;
++    /* Hades: the alpha of the picture that says a pixel nothing is drawn over (PICTURE_ALPHA as
++     * the 32-bit floats have it, 1.0 as the 16-bit codes do: dvbridge_source_picture_alpha()) */
++    float picture_alpha;
++    GLint cover_alpha;
+     /* Hades: the second draw of pass 5, and what the first leaves it */
+     GLuint cover_blocks;
+     GLint cover_quads;
+@@ -2214,6 +2219,8 @@ static struct dvbridge_source_packer *create_packer(bool allow_quad)
+     p->cover = link(COVER);
+     p->cover_drawn = p->cover ? glGetUniformLocation(p->cover, "drawn") : -1;
+     p->cover_active = p->cover ? glGetUniformLocation(p->cover, "active_rect") : -1;
++    p->cover_alpha = p->cover ? glGetUniformLocation(p->cover, "picture_alpha") : -1;
++    p->picture_alpha = 2.0f;
+     p->cover_blocks = link(COVER_BLOCKS);
+     p->cover_quads = p->cover_blocks ? glGetUniformLocation(p->cover_blocks, "quads") : -1;
+     /* Hades: passes 6 and 7, and how 3, 4 and 5 take their tiles */
+@@ -2240,7 +2247,8 @@ static struct dvbridge_source_packer *create_packer(bool allow_quad)
+     p->drawn_usable = p->gt_gui >= 0 && p->gt_size >= 0 && p->gt_alpha >= 0 && p->dr_tiles >= 0 &&
+                       p->dr_size >= 0;
+     if (!p->pack || !p->picture || !p->resite || !p->rows || !p->cover || p->cover_drawn < 0 ||
+-        p->cover_active < 0 || !p->cover_blocks || p->cover_quads < 0 || !found ||
++        p->cover_active < 0 || p->cover_alpha < 0 || !p->cover_blocks || p->cover_quads < 0 ||
++        !found ||
+         !locate(p->pack, &p->pc.luma, COMMON_NAMES, COUNT(COMMON_NAMES)) ||
+         !locate(p->picture, &p->cc.luma, COMMON_NAMES, COUNT(COMMON_NAMES)) ||
+         !locate(p->pack, &p->u.drawn, pack, COUNT(pack)) ||
+@@ -3073,6 +3081,12 @@ void dvbridge_source_gui_in_place(struct dvbridge_source_packer *p, float peak)
+         p->inplace_asked = isfinite(peak) && peak > 0.0f && peak <= 1.0f ? peak : 0.0f;
+ }
+ 
++void dvbridge_source_picture_alpha(struct dvbridge_source_packer *p, float alpha)
++{
++    if (p)
++        p->picture_alpha = alpha;
++}
++
+ bool dvbridge_source_can_gui_in_place(const struct dvbridge_source_packer *p)
+ {
+     return p && p->pack_gui && !p->inplace_failed;
+@@ -3948,6 +3962,7 @@ bool dvbridge_source_cover(struct dvbridge_source_packer *p, unsigned layer,
+     glUseProgram(p->cover);
+     bind(p, 0, layer);
+     glUniform1i(p->cover_drawn, 0);
++    glUniform1f(p->cover_alpha, p->picture_alpha);
+     glUniform4i(p->cover_active, x0, y0, x1, y1);
+     set_tiles(p, p->cv_tiles, p->cv_mode, p->tiles_mode);
+     glDrawArrays(GL_TRIANGLES, 0, 3);
+diff --git a/tools/dvbridge/dvbridge_source.h b/tools/dvbridge/dvbridge_source.h
+index a6a8a2b..449d0c4 100644
+--- a/tools/dvbridge/dvbridge_source.h
++++ b/tools/dvbridge/dvbridge_source.h
+@@ -222,6 +222,9 @@ bool dvbridge_source_complete(struct dvbridge_source_packer *packer,
+  * no pixel (the alpha of its sample is 0); under it, the same expressions as the composite and the
+  * blend unit. can: the program was made, and no pack so failed. */
+ void dvbridge_source_gui_in_place(struct dvbridge_source_packer *packer, float peak);
++/* Hades: the alpha of the picture that says a pixel nothing is drawn over (2.0 as the 32-bit
++ * floats have it, 1.0 as its 16-bit codes do), for pass 5 (dvbridge_source_cover()) */
++void dvbridge_source_picture_alpha(struct dvbridge_source_packer *packer, float alpha);
+ bool dvbridge_source_can_gui_in_place(const struct dvbridge_source_packer *packer);
+ bool dvbridge_source_gui_in_placed(const struct dvbridge_source_packer *packer);
+ /* Hades: the tile mask of what is drawn over the picture of the last dvbridge_source_picture(), to
+diff --git a/tools/dvbridge/pack_gles300.frag b/tools/dvbridge/pack_gles300.frag
+index 700e909..682bf5f 100644
+--- a/tools/dvbridge/pack_gles300.frag
++++ b/tools/dvbridge/pack_gles300.frag
+@@ -22,6 +22,20 @@ precision highp int;
+ // The composed picture.
+ uniform highp sampler2D pq_input;
+ 
++// Hades: the GUI of Kodi over the picture, blended here as the composite pass
++// blended it into the picture before (WinSystemGbmGLESContext.cpp): the skin's
++// sRGB converted exactly to the PQ signal, mixed over the pixel by the squared
++// alpha of its coverage. The peak is 0 where no GUI is composited (the fetch
++// itself is left out then).
++uniform highp sampler2D gui_input;
++uniform float gui_pq_peak;
++// Hades: the grey of the GUI by one lookup: an entry a code of its 8 bits (read exact, a texel
++// of the index) holding the signal of the code - the sRGB EOTF, the matrix that leaves grey grey
++// (its rows add to 1), and the PQ of the white the peak names. Nearly all the pixels of the GUI
++// are grey - its text, bars and shades, the subtitles among them - and take the lookup alone; a
++// colour is converted in place, by the arithmetic the composite's shader made.
++uniform highp sampler2D gui_lut_gray;
++
+ // The metadata packets: packet P is the 32 words 32P .. 32P+31, word w is
+ // metadata_words[w / 4][w % 4], and the first byte of a packet is in bits
+ // 31..24 of its word 0, the next one in bits 23..16, and so on.
+@@ -50,6 +64,57 @@ uint parity(uint v)
+     return v & 1u;
+ }
+ 
++// Hades: IEC 61966-2-1 sRGB EOTF, as the composite's shader has it
++// (gles_gui_composite.frag)
++vec3 srgbToLinear(vec3 c)
++{
++    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
++}
++
++// Hades: SMPTE ST 2084 inverse EOTF of linear light in units of 10000 cd/m2, as the composite's
++const float PQ_M1 = 0.1593017578125; // 2610/16384
++const float PQ_M2 = 78.84375;        // 2523/4096 * 128
++const float PQ_C1 = 0.8359375;       // 3424/4096
++const float PQ_C2 = 18.8515625;      // 2413/4096 * 32
++const float PQ_C3 = 18.6875;         // 2392/4096 * 32
++vec3 forwardPQ(vec3 L)
++{
++    vec3 Lm1 = pow(max(L, vec3(0.0)), vec3(PQ_M1));
++    return pow((PQ_C1 + PQ_C2 * Lm1) / (1.0 + PQ_C3 * Lm1), vec3(PQ_M2));
++}
++
++// Hades: BT.709 -> BT.2020 in linear light, as ITU-R BT.2087 gives it (the composite's shader);
++// its rows add to 1, so a grey stays grey
++const mat3 BT709_TO_BT2020 = mat3(
++    0.627403896, 0.069097289, 0.016391439,
++    0.329283038, 0.919540395, 0.088013308,
++    0.043313066, 0.011362316, 0.895595253);
++
++// Hades: the pixel of the picture with the GUI over it, as the composite pass wrote it into the
++// picture: the GUI's colour in the PQ signal mixed over the pixel by the squared alpha of its
++// coverage (the blend the composite drew with: GL_SRC_ALPHA and GL_ONE_MINUS_SRC_ALPHA on an
++// alpha of a * a). Nothing is fetched where no GUI is composited (gui_pq_peak 0).
++vec3 gui_over(ivec2 q, vec3 picture)
++{
++    if (gui_pq_peak <= 0.0)
++        return picture;
++    // The row 0 of the GUI texture is the bottom of the screen (the window framebuffer's
++    // orientation), while the picture's row 0 is the top of the raster: the fetch reads the row
++    // the other way round, as the composite pass drew the GUI flipped for the same reason
++    // (WinSystemGbmGLESContext.cpp: the projection of the GUI turned upside down for it).
++    vec4 gui = texelFetch(gui_input, ivec2(q.x, 2159 - q.y), 0);
++    vec3 signal;
++    if (max(max(gui.r, gui.g), gui.b) - min(min(gui.r, gui.g), gui.b) < 0.75 / 255.0)
++        // grey, within a code of it: the one lookup (the matrix would move it by less than the
++        // rounding of the packing)
++        signal = vec3(texelFetch(gui_lut_gray, ivec2(int(gui.r * 255.0 + 0.5), 0), 0).r);
++    else
++        // a colour: converted in place, by the arithmetic the composite's shader made
++        signal = forwardPQ(BT709_TO_BT2020 * srgbToLinear(clamp(gui.rgb, 0.0, 1.0)) *
++                           vec3(gui_pq_peak));
++    return mix(picture, signal, gui.a * gui.a);
++}
++
+ void main()
+ {
+     // The raster position of this fragment: the framebuffer position, its
+@@ -59,8 +124,8 @@ void main()
+     if (flip_y != 0u)
+         p.y = 2159 - p.y;
+ 
+-    // Step 1: the colour of the pixel, clamped to [0, 1].
+-    vec3 rgb = clamp(texelFetch(pq_input, p, 0).rgb, 0.0, 1.0);
++    // Step 1: the colour of the pixel, clamped to [0, 1], with the GUI over it.
++    vec3 rgb = gui_over(p, clamp(texelFetch(pq_input, p, 0).rgb, 0.0, 1.0));
+ 
+     // The luma of each pixel is its own and the chroma of a pair is that of
+     // its even pixel, because 4:2:2 over HDMI is co-sited: a receiver puts
+@@ -88,11 +153,11 @@ void main()
+         if (got.w == float(p.y * 4096 + pe.x))
+             e = got.rgb;
+         else
+-            e = clamp(texelFetch(pq_input, pe, 0).rgb, 0.0, 1.0);
++            e = gui_over(pe, clamp(texelFetch(pq_input, pe, 0).rgb, 0.0, 1.0));
+     }
+ #else
+     if (odd)
+-        e = clamp(texelFetch(pq_input, pe, 0).rgb, 0.0, 1.0);
++        e = gui_over(pe, clamp(texelFetch(pq_input, pe, 0).rgb, 0.0, 1.0));
+ #endif
+ 
+     // Step 2: the luma of the pixel (BT.2020 non-constant luminance).
+diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
+index a502c6b..7e4e411 100644
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
+@@ -1647,6 +1647,11 @@ bool HlgAsDolbyVision();
+ void MeasurementFailed();
+ //! ... whether it could not (any thread; false until it was tried and failed)
+ bool MeasurementUnavailable();
++//! Hades: the serial of a picture that a renderer draws, one counter for the whole process (every
++//! renderer's pictures take theirs from it: CLinuxRendererGLES::AddVideoPicture(),
++//! CRendererDRMPRIMEGLES::AddVideoPicture()): the window system tells by it whether the picture
++//! that a frame draws is the one that is on the screen, which an earlier renderer may have drawn
++unsigned int NextPictureSerial();
+ //! Hades: whether a picture of HDR10+ sent as Dolby Vision that has no statistics of its own is
+ //! filled with a level 1 block measured from the picture (CDVHdr10PlusFill): the expert switch is
+ //! on (<video><dvhdr10plusfill>, m_videoDVHdr10PlusFill) and the measurement is not known to be
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+index 0bcf513..8c37520 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+@@ -602,10 +602,22 @@ bool CDVBridgeGLES::Initialize(bool allowSoftware)
+     CLog::Log(LOGINFO, "DVBridge: the area outside the active picture is written after the "
+                        "reconstruction, as advancedsettings.xml asks (dvearlymask)");
+   }
++  // Hades: the picture that Kodi draws over in 16-bit codes where it serves (not with the source
++  // transport): the same codes at half the bytes of the 32-bit floats, written by the composite
++  // and read by the pack. advancedsettings.xml can turn it off, to measure what it saves:
++  // <video><dvpicture16>false</video></video>
++  {
++    const auto settings = CServiceBroker::GetSettingsComponent();
++    dvbridge_render_use_picture16(m_renderer,
++                                  !settings || settings->GetAdvancedSettings()->m_videoDVPicture16);
++    if (Picture16())
++      CLog::Log(LOGINFO, "DVBridge: the picture that Kodi draws over is held in 16-bit codes, half "
++                         "the bytes of its 32-bit floats (advancedsettings.xml: dvpicture16)");
++  }
+   // Hades: the GUI cache of the source transport: the packed bytes of the GUI where it is opaque and
+   // did not change are copied from the frame that packed them, not converted again (the same bytes;
+   // dvbridge_source.h). advancedsettings.xml can turn it off, to measure what it saves:
+-  // <video><dvguicache>false</dvguicache></video>; and <dvguicachecheck>true</dvguicachecheck>
++  // <video><dvguicache>false</video></video>; and <dvguicachecheck>true</dvguicachecheck>
+   // packs the tiles copied again on those frames and compares them, with a line every 240 frames
+   {
+     const auto settings = CServiceBroker::GetSettingsComponent();
+@@ -1301,6 +1313,21 @@ bool CDVBridgeGLES::GuiInPlace() const
+   return m_prepared && !m_direct && dvbridge_render_gui_in_place(m_renderer);
+ }
+ 
++bool CDVBridgeGLES::GuiPackFold() const
++{
++  return m_prepared && !m_direct && dvbridge_render_pack_takes_gui(m_renderer);
++}
++
++void CDVBridgeGLES::SetPicture16(bool use)
++{
++  dvbridge_render_use_picture16(m_renderer, use);
++}
++
++bool CDVBridgeGLES::Picture16() const
++{
++  return m_renderer && dvbridge_render_picture16(m_renderer);
++}
++
+ bool CDVBridgeGLES::RequestDrawnTiles(unsigned int serial)
+ {
+   return m_prepared && !m_direct && m_renderer && dvbridge_render_tiles_request(m_renderer, serial);
+@@ -1737,7 +1764,8 @@ bool CDVBridgeGLES::GraphicsRange(int whitePercent, dvbridge_graphics_range& ran
+   return dvbridge_graphics_range_of(203.0 * whitePercent / 100.0, &range);
+ }
+ 
+-bool CDVBridgeGLES::Pack(unsigned int framebuffer, int width, int height, bool flipY, Cover cover)
++bool CDVBridgeGLES::Pack(unsigned int framebuffer, int width, int height, bool flipY, Cover cover,
++                         unsigned guiTexture, float guiPeak)
+ {
+   m_packed = false;
+   if (!m_prepared)
+@@ -1748,7 +1776,8 @@ bool CDVBridgeGLES::Pack(unsigned int framebuffer, int width, int height, bool f
+   m_packed = dvbridge_render_pack(m_renderer, m_packer, framebuffer, width, height, flipY,
+                                   cover == Cover::MEASURE ? DVBRIDGE_COVER_MEASURE
+                                   : cover == Cover::BARS  ? DVBRIDGE_COVER_BARS
+-                                                          : DVBRIDGE_COVER_NONE);
++                                                          : DVBRIDGE_COVER_NONE,
++                                  guiTexture, guiPeak);
+   if (!m_packed)
+     return Fail("transport-packing");
+   // Hades: the check of the GUI cache (dvguicachecheck): what the frames that took it copied, and
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+index 453887b..4b672fb 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+@@ -313,7 +313,10 @@ public:
+     MEASURE, //!< something was: the edges it goes beyond measured (the GPU waited for)
+     BARS, //!< something was: every edge that has bars (the GPU not waited for)
+   };
+-  bool Pack(unsigned int framebuffer, int width, int height, bool flipY, Cover cover = Cover::NONE);
++  //! Hades: guiTexture/guiPeak - the GUI over the picture, blended by the pack itself (the fold,
++  //! GuiPackFold(); 0: none)
++  bool Pack(unsigned int framebuffer, int width, int height, bool flipY, Cover cover = Cover::NONE,
++            unsigned guiTexture = 0, float guiPeak = 0.0f);
+   //! Hades: a transport frame that marks the end of the signal (video/dveos): black, with the
+   //! packets of the last frame with EOS set (dvbridge_eos.h), into framebuffer as Pack() packs.
+   //! packets: how many; false, with why, where there is no frame whose packets it can take.
+@@ -365,6 +368,15 @@ public:
+   //! Hades: the packer composites the GUI over the prepared frame itself (SetDrawnOver()): nothing is
+   //! to be drawn into the PQ picture for it. False once the picture is made whole (CompletePicture()).
+   bool GuiInPlace() const;
++  //! Hades: the picture that Kodi draws over in 16-bit codes where it serves (SetPicture16(),
++  //! advancedsettings.xml: dvpicture16): the alpha of it tells 1.0 - a, not 2 - a
++  void SetPicture16(bool use);
++  bool Picture16() const;
++  //! Hades: the pack of the converted transport takes the GUI over the picture of the frame that
++  //! is prepared (dvbridge_render_pack_takes_gui()): the GUI is handed to Pack() and nothing is
++  //! composited into the picture - the pass of the composite, whose every byte was bandwidth on
++  //! this GPU, is not run (the fold; advancedsettings.xml: dvguipackfold)
++  bool GuiPackFold() const;
+   //! Hades: the tile mask of what is drawn over the prepared frame, to the CPU without waiting
+   //! (dvbridge_render_tiles_request(), _poll()): one byte a tile of 16 x 16 pixels, 240 x 135, row
+   //! 0 the top of the raster. Request only after PrepareHardware() of a frame composed in the
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.cpp
+index 2ae0be1..2f3032a 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.cpp
+@@ -28,6 +28,13 @@
+ 
+ #include <memory>
+ 
++#ifdef HAVE_DVBRIDGE
++#include "cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h"
++#include "cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h"
++#include "dvbridge_hdr10plus.h"
++#include "windowing/gbm/WinSystemGbmGLESContext.h"
++#endif
++
+ using namespace KODI::UTILS::EGL;
+ 
+ CRendererDRMPRIMEGLES::~CRendererDRMPRIMEGLES()
+@@ -111,9 +118,54 @@ bool CRendererDRMPRIMEGLES::Configure(const VideoPicture& picture,
+   if (!winSystem)
+     return false;
+ 
++  uint32_t sourceFourcc = 0;
++  auto* drmBuf = dynamic_cast<CVideoBufferDRMPRIME*>(picture.videoBuffer);
++  if (drmBuf && drmBuf->AcquireDescriptor())
++  {
++    auto* desc = drmBuf->GetDescriptor();
++    if (desc && desc->nb_layers == 1)
++      sourceFourcc = desc->layers[0].format;
++    drmBuf->ReleaseDescriptor();
++  }
++
++#ifdef HAVE_DVBRIDGE
++  m_sourceFourcc = sourceFourcc;
++  // Hades: an HDR10 or HLG picture that the bridge maps to SDR, or to the peak of the display
++  // where it is adapted to it (m_plainMap), as CLinuxRendererGLES::Configure() decides it: the
++  // output is set up for the picture that is sent (an SDR picture of BT.709, or HDR10 told the
++  // peak of the display), and the pictures are drawn by the bridge (RenderPlainMapping()); Kodi's
++  // own way where it is off or a picture could not be mapped
++  auto* dvWindow =
++      dynamic_cast<KODI::WINDOWING::GBM::CWinSystemGbmGLESContext*>(CServiceBroker::GetWinSystem());
++  bool plain = dvWindow && WantsPlainMapping(picture);
++  VideoPicture told;
++  if (plain)
++  {
++    const dvbridge_hdr10_mapping mapping =
++        dvWindow->TakeDVConversionMapping(picture, true, true, LibplaceboKneeWanted());
++    CDVBridgeGLES::ConversionOutputSdr(picture, told, &mapping);
++    dvWindow->DVConversionAhead(false);
++  }
++  // Hades: ... or an HDR10 or HDR10+ picture adapted to the display (videoscreen.hadeshdr10adapt)
++  bool adapt = dvWindow && !plain && WantsHdr10Adapt(picture);
++  if (adapt)
++  {
++    const dvbridge_hdr10_mapping mapping = dvWindow->TakeHdr10AdaptMapping(picture);
++    adapt = CDVBridgeGLES::ConversionOutputAdapted(picture, told, mapping);
++    if (adapt)
++      dvWindow->DVConversionAhead(false);
++    if (!adapt)
++      DVBRIDGE::PlainMappingFailed("no mapping to the display could be made of it");
++  }
++  plain = plain || adapt;
++  const VideoPicture& output = plain ? told : picture;
++#else
++  const VideoPicture& output = picture;
++#endif
++
+   m_configured = true;
+ 
+-  if (!winSystem->SetVideoOutput(&picture))
++  if (!winSystem->SetVideoOutput(&output))
+     CLog::Log(LOGWARNING, "RendererDRMPRIMEGLES::Configure: SetVideoOutput failed");
+ 
+   auto winSystemEGL = dynamic_cast<KODI::WINDOWING::LINUX::CWinSystemEGL*>(winSystem);
+@@ -140,16 +192,6 @@ bool CRendererDRMPRIMEGLES::Configure(const VideoPicture& picture,
+   //    here when the source fourcc is one we can per-plane import.
+   m_yuvShader.reset();
+ 
+-  uint32_t sourceFourcc = 0;
+-  auto* drmBuf = dynamic_cast<CVideoBufferDRMPRIME*>(picture.videoBuffer);
+-  if (drmBuf && drmBuf->AcquireDescriptor())
+-  {
+-    auto* desc = drmBuf->GetDescriptor();
+-    if (desc && desc->nb_layers == 1)
+-      sourceFourcc = desc->layers[0].format;
+-    drmBuf->ReleaseDescriptor();
+-  }
+-
+   if (CDRMPRIMETextureYUV::SupportsFormat(sourceFourcc))
+   {
+     using namespace Shaders::GLES;
+@@ -238,12 +280,43 @@ bool CRendererDRMPRIMEGLES::Configure(const VideoPicture& picture,
+         CSettings::SETTING_VIDEOSCREEN_LIMITEDRANGE, false);
+   }
+ 
+-  winSystem->SetColorimetry(&picture);
+-  m_passthroughHDR = winSystem->SetHDR(&picture);
++  winSystem->SetColorimetry(&output);
++  m_passthroughHDR = winSystem->SetHDR(&output);
++#ifdef HAVE_DVBRIDGE
++  // Hades: fail closed, as CLinuxRendererGLES::Configure(): a picture mapped to SDR does not go
++  // out with HDR signalling, nor one adapted to the display without it. The video plays as Kodi
++  // plays it, through the output of its own picture.
++  if (plain && m_passthroughHDR != adapt)
++  {
++    DVBRIDGE::PlainMappingFailed(adapt ? "the output did not take HDR10 for a picture adapted to "
++                                        "the display"
++                                       : "the output took HDR signalling for a picture mapped to SDR");
++    adapt = false;
++    plain = false;
++    if (!winSystem->SetVideoOutput(&picture))
++      CLog::Log(LOGWARNING, "RendererDRMPRIMEGLES::Configure: SetVideoOutput failed");
++    winSystem->SetColorimetry(&picture);
++    m_passthroughHDR = winSystem->SetHDR(&picture);
++  }
++  // Hades: the player information tells what the video says of itself, which SetHDR() took from
++  // the picture made for the output
++  if (plain)
++    dvWindow->NoteSourceColour(&picture);
++  m_plainMap = plain;
++  m_plainAdapt = plain && adapt;
++  m_plainFailures = 0;
++  m_plainFailedSerial = 0;
++  m_dvLibplaceboKnee = LibplaceboKneeWanted();
++  // (the transfer of what is sent: that of the told picture, or of the video's own picture where
++  // the fail-closed above set the output up for it again)
++  const int transfer = (plain ? output : picture).color_transfer;
++#else
++  const int transfer = picture.color_transfer;
++#endif
+   CLog::Log(LOGDEBUG, "RendererDRMPRIMEGLES::Configure: HDR passthrough: {}",
+             m_passthroughHDR ? "on" : "off");
+ 
+-  m_hdrFboActive = m_passthroughHDR && winSystem->SetGuiCompositing(picture.color_transfer);
++  m_hdrFboActive = m_passthroughHDR && winSystem->SetGuiCompositing(transfer);
+   if (m_passthroughHDR && !m_hdrFboActive)
+     CLog::Log(LOGWARNING, "RendererDRMPRIMEGLES::Configure: HDR passthrough active but GUI "
+                           "compositing not supported by windowing system");
+@@ -288,6 +361,25 @@ void CRendererDRMPRIMEGLES::AddVideoPicture(const VideoPicture& picture, int ind
+   buf.videoBuffer = picture.videoBuffer;
+   buf.videoBuffer->Acquire();
+   buf.hdr10PlusVsif = picture.hdr10PlusVsif;
++#ifdef HAVE_DVBRIDGE
++  // Hades: what the bridge takes of the picture, as CLinuxRendererGLES::AddVideoPicture() keeps
++  // it of its pictures: its time, the video it is of, its metadata and its colour
++  buf.doviPts = picture.doviSourcePts == AV_NOPTS_VALUE ? DVD_NOPTS_VALUE
++                                                        : static_cast<double>(picture.doviSourcePts);
++  // (DVD_TIME_BASE units, which are those of doviSourcePts: microseconds)
++  buf.doviDuration = picture.iDuration > 0 ? picture.iDuration : 0.0;
++  buf.doviVideo = picture.doviVideo;
++  buf.doviSerial = DVBRIDGE::NextPictureSerial();
++  buf.doviChroma = picture.chroma_position;
++  buf.srcColTransfer = picture.color_transfer;
++  buf.srcFullRange = picture.color_range == 1;
++  buf.hasDisplayMetadata = picture.hasDisplayMetadata;
++  buf.displayMetadata = picture.displayMetadata;
++  buf.hasLightMetadata = picture.hasLightMetadata;
++  buf.lightMetadata = picture.lightMetadata;
++  buf.hdr10PlusDynamic = picture.hdr10PlusDynamic;
++  buf.doviMetadata = picture.doviMetadata;
++#endif
+ 
+   // CDVDVideoCodecDRMPRIME fills its buffers at decode; CVideoBufferDMA arrives unfilled
+   auto* drmBuffer = dynamic_cast<CVideoBufferDRMPRIME*>(picture.videoBuffer);
+@@ -449,6 +541,20 @@ bool CRendererDRMPRIMEGLES::ConfigChanged(const VideoPicture& picture)
+   if (picture.videoBuffer->GetFormat() != m_format)
+     return true;
+ 
++#ifdef HAVE_DVBRIDGE
++  // Hades: when an HDR picture that is not Dolby Vision starts or stops being mapped by the
++  // bridge: the method of the video, the output, or a failure (as
++  // CLinuxRendererGLES::ConfigChanged()); ... and when the knee of the BT.2390 curve of a mapping
++  // to SDR is no longer the one the method of the video asks for
++  if (m_configured)
++  {
++    const bool wanted = WantsPlainMapping(picture) || WantsHdr10Adapt(picture);
++    if (wanted != m_plainMap.load() ||
++        (m_plainMap && !m_plainAdapt && LibplaceboKneeWanted() != m_dvLibplaceboKnee))
++      return true;
++  }
++#endif
++
+   return false;
+ }
+ 
+@@ -460,6 +566,37 @@ void CRendererDRMPRIMEGLES::Render(unsigned int flags, int index)
+   if (!buffer || !buffer->IsValid())
+     return;
+ 
++#ifdef HAVE_DVBRIDGE
++  // Hades: mapped to SDR (or to the peak of the display) by the bridge. A picture that could not
++  // be mapped falls through to Kodi's own way below (m_plainMap stays for the next picture: after
++  // two seconds of film of those, this video plays as Kodi plays it, ConfigChanged() then has the
++  // renderer configured for that)
++  if (m_plainMap)
++  {
++    constexpr unsigned int FAILURES = 48;
++    const int drawn = RenderPlainMapping(index);
++    const unsigned int serial = buf.doviSerial;
++    if (drawn == 1)
++    {
++      m_plainFailures = 0;
++      m_plainFailedSerial = 0;
++    }
++    else if (serial != m_plainFailedSerial)
++    {
++      m_plainFailedSerial = serial;
++      if (++m_plainFailures == FAILURES)
++        DVBRIDGE::PlainMappingFailed(DVBRIDGE::RendererFailureReason(
++            false, "its pictures could not be mapped"));
++    }
++    if (drawn >= 0)
++    {
++      buf.fence->DestroyFence();
++      buf.fence->CreateFence();
++      return;
++    }
++  }
++#endif
++
+   CRenderSystemGLES* renderSystem =
+       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
+   if (!renderSystem)
+@@ -660,6 +797,121 @@ void CRendererDRMPRIMEGLES::DrawTexture(CRenderSystemGLES& renderSystem,
+   glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+ }
+ 
++#ifdef HAVE_DVBRIDGE
++bool CRendererDRMPRIMEGLES::LibplaceboKneeWanted() const
++{
++  // Hades: while frame-by-frame dynamic tone mapping is on, its curve decides the knee question,
++  // not the method of the video (DVBRIDGE::ToneMapMethodOf()); with it off, the video's own method
++  // is the authority again
++  return static_cast<ETONEMAPMETHOD>(DVBRIDGE::ToneMapMethodOf(m_videoSettings.m_ToneMapMethod)) ==
++         VS_TONEMAPMETHOD_BT2390_LIBPLACEBO;
++}
++
++bool CRendererDRMPRIMEGLES::CanPlainMap(const VideoPicture& picture) const
++{
++  // The two planes of the dma-buf imported per plane, as the limited-range path takes them: the
++  // layout the bridge imports (dvbridge_gl_frame_import()) and a size it takes; the place and the
++  // size on the screen are free (the bridge scales to where Kodi puts the picture)
++  if (m_renderOrientation != 0 || picture.iWidth < 1 || picture.iHeight < 1)
++    return false;
++  switch (m_sourceFourcc)
++  {
++    case DRM_FORMAT_NV12:
++    case DRM_FORMAT_P010:
++    case DRM_FORMAT_P012:
++    case DRM_FORMAT_P016:
++      break;
++    default:
++      return false;
++  }
++  return DVBRIDGE::SourceFitsRaster(static_cast<int>(picture.iWidth),
++                                    static_cast<int>(picture.iHeight));
++}
++
++bool CRendererDRMPRIMEGLES::WantsPlainMapping(const VideoPicture& picture) const
++{
++  // (not a picture that another renderer reconstructs: the DRM PRIME renderer has no
++  // reconstruction; such a video plays as Kodi plays it, as before)
++  return DVBRIDGE::WantsPlainMapping(&picture, m_videoSettings.m_ToneMapMethod) &&
++         !DVBRIDGE::WantsConversion(&picture, m_videoSettings.m_ToneMapMethod) &&
++         CanPlainMap(picture);
++}
++
++bool CRendererDRMPRIMEGLES::WantsHdr10Adapt(const VideoPicture& picture) const
++{
++  return DVBRIDGE::WantsHdr10Adapt(&picture) &&
++         !DVBRIDGE::WantsConversion(&picture, m_videoSettings.m_ToneMapMethod) &&
++         !WantsPlainMapping(picture) && CanPlainMap(picture);
++}
++
++int CRendererDRMPRIMEGLES::RenderPlainMapping(int index)
++{
++  // Hades: its two planes imported per plane (the limited-range way), its colour (transfer, range
++  // and the HDR10 and HDR10+ metadata of the picture) and the metadata of the stream where it has
++  // them: what CRendererVAAPIGLES::RenderPlainMapping() gives the window of a VAAPI surface
++  if (index < 0 || index >= NUM_BUFFERS || m_renderOrientation != 0)
++    return -1;
++  auto* window =
++      dynamic_cast<KODI::WINDOWING::GBM::CWinSystemGbmGLESContext*>(CServiceBroker::GetWinSystem());
++  if (!window)
++    return -1;
++  BUFFER& buf = m_buffers[index];
++  auto* buffer = dynamic_cast<CVideoBufferDRMPRIME*>(buf.videoBuffer);
++  if (!buffer || !buffer->IsValid())
++    return -1;
++  CDRMPRIMETextureYUV* yuv = m_texturePool.GetYUV(buffer);
++  if (!yuv)
++    return -1;
++  CDVBridgeGLES::Layer layer{};
++  switch (yuv->GetSourceFormat())
++  {
++    case DRM_FORMAT_NV12:
++      layer.layout = DVBRIDGE_NV12;
++      break;
++    case DRM_FORMAT_P010:
++      layer.layout = DVBRIDGE_P010;
++      break;
++    case DRM_FORMAT_P012:
++      layer.layout = DVBRIDGE_P012;
++      break;
++    case DRM_FORMAT_P016:
++      layer.layout = DVBRIDGE_P016;
++      break;
++    default:
++      return -1;
++  }
++  const CSizeInt texSize = yuv->GetTextureSize();
++  layer.width = m_sourceWidth;
++  layer.height = m_sourceHeight;
++  layer.chroma = buf.doviChroma;
++  layer.pts = (buf.doviPts != DVD_NOPTS_VALUE) ? buf.doviPts : 0.0;
++  layer.duration = buf.doviDuration;
++  layer.video = buf.doviVideo;
++  layer.planes[0] = {yuv->GetTexture(0), texSize.Width(), texSize.Height()};
++  layer.planes[1] = {yuv->GetTexture(1), (texSize.Width() + 1) / 2, (texSize.Height() + 1) / 2};
++  // (the colour of the picture: its transfer, its range and its HDR10 metadata, 0 where not known)
++  dvbridge_plain plain{};
++  plain.hlg = buf.srcColTransfer == AVCOL_TRC_ARIB_STD_B67;
++  plain.full_range = buf.srcFullRange;
++  if (buf.hasDisplayMetadata && buf.displayMetadata.has_luminance &&
++      buf.displayMetadata.max_luminance.den && buf.displayMetadata.min_luminance.den)
++  {
++    plain.max_luma = static_cast<float>(av_q2d(buf.displayMetadata.max_luminance));
++    plain.min_luma = static_cast<float>(av_q2d(buf.displayMetadata.min_luminance));
++  }
++  if (buf.hasLightMetadata)
++  {
++    plain.max_cll = static_cast<float>(buf.lightMetadata.MaxCLL);
++    plain.max_fall = static_cast<float>(buf.lightMetadata.MaxFALL);
++  }
++  // ... and its HDR10+ metadata, which guide the mapping where it has them (a PQ picture only)
++  if (buf.hdr10PlusDynamic && buf.srcColTransfer == AVCOL_TRC_SMPTE2084)
++    dvbridge_hdr10plus_plain(buf.hdr10PlusDynamic.get(), &plain.hdr10plus, nullptr, nullptr);
++  return window->RenderPlainMapping(layer, plain, m_sourceRect, m_destRect, buf.doviSerial,
++                                    buf.doviMetadata);
++}
++#endif
++
+ bool CRendererDRMPRIMEGLES::Supports(ERENDERFEATURE feature) const
+ {
+   switch (feature)
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.h b/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.h
+index 78ad147..1f2a7ba 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/HwDecRender/RendererDRMPRIMEGLES.h
+@@ -12,9 +12,19 @@
+ #include "cores/VideoPlayer/VideoRenderers/BaseRenderer.h"
+ 
+ #include <array>
++#include <atomic>
+ #include <memory>
+ #include <optional>
+ 
++#ifdef HAVE_DVBRIDGE
++#include "cores/VideoPlayer/DVDCodecs/Video/DVMetadataBuffer.h"
++#include "cores/VideoPlayer/Interface/TimingConstants.h"
++
++#include <libavutil/hdr_dynamic_metadata.h>
++#include <libavutil/mastering_display_metadata.h>
++#include <libavutil/pixfmt.h>
++#endif
++
+ namespace KODI
+ {
+ namespace UTILS
+@@ -76,10 +86,37 @@ private:
+   void DrawBlackBars();
+   void Render(unsigned int flags, int index);
+ 
++#ifdef HAVE_DVBRIDGE
++  //! Hades: an HDR10 or HLG picture mapped to SDR (or to the peak of the display, where it is
++  //! adapted to it) by the bridge, as CRendererVAAPIGLES::RenderPlainMapping() maps a VAAPI
++  //! surface: its two planes imported per plane, its colour and its metadata. -1 where it could
++  //! not be drawn (Kodi's own way then).
++  int RenderPlainMapping(int index);
++  //! Hades: whether the bridge maps the pictures of this video (DVBRIDGE::WantsPlainMapping())
++  //! and this renderer can give it their planes (CanPlainMap())
++  bool WantsPlainMapping(const VideoPicture& picture) const;
++  //! Hades: ... or adapts them to the display (DVBRIDGE::WantsHdr10Adapt())
++  bool WantsHdr10Adapt(const VideoPicture& picture) const;
++  bool CanPlainMap(const VideoPicture& picture) const;
++  bool LibplaceboKneeWanted() const;
++#endif
++
+   bool m_configured = false;
+   bool m_passthroughHDR{false};
+   bool m_hdrFboActive{false};
+ 
++#ifdef HAVE_DVBRIDGE
++  //! Hades: the pictures are mapped by the bridge (RenderPlainMapping()); Kodi's own way where it
++  //! is off or a picture could not be mapped. An atomic: ConfigChanged() asks from the player
++  //! thread.
++  std::atomic<bool> m_plainMap{false};
++  bool m_plainAdapt = false; //!< m_plainMap is that (an HDR10 picture adapted to the display)
++  unsigned int m_plainFailures = 0; //!< pictures in a row that the bridge could not map
++  unsigned int m_plainFailedSerial = 0; //!< the last one counted (one drawn again counts once)
++  bool m_dvLibplaceboKnee = false; //!< the knee of the curve when the renderer was configured
++  uint32_t m_sourceFourcc = 0; //!< the DRM fourcc of the pictures (the layout the bridge imports)
++#endif
++
+   // Limited-range path: per-plane EGL import + standard YUV2RGB shader.
+   // Set at Configure time when the user has limited-range output enabled
+   // AND the buffer's source fourcc can be imported by CDRMPRIMETextureYUV
+@@ -92,6 +129,22 @@ private:
+     CVideoBuffer* videoBuffer = nullptr;
+     //! Hades: the HDR10+ InfoFrame of the picture (VideoPicture::hdr10PlusVsif)
+     std::optional<std::array<uint8_t, 27>> hdr10PlusVsif;
++#ifdef HAVE_DVBRIDGE
++    //! Hades: what the bridge takes of the picture, as the buffer of CLinuxRendererGLES keeps it
++    double doviPts = DVD_NOPTS_VALUE;
++    double doviDuration = 0.0; //!< of a frame of the stream, in the units of doviPts
++    unsigned int doviVideo = 0;
++    unsigned int doviSerial = 0; //!< one counter for every renderer (DVBRIDGE::NextPictureSerial())
++    AVChromaLocation doviChroma = AVCHROMA_LOC_UNSPECIFIED;
++    int srcColTransfer = AVCOL_TRC_UNSPECIFIED;
++    bool srcFullRange = false;
++    bool hasDisplayMetadata = false;
++    AVMasteringDisplayMetadata displayMetadata{};
++    bool hasLightMetadata = false;
++    AVContentLightMetadata lightMetadata{};
++    std::shared_ptr<const AVDynamicHDRPlus> hdr10PlusDynamic;
++    CDVMetadataBuffer doviMetadata;
++#endif
+     std::unique_ptr<KODI::UTILS::EGL::CEGLFence> fence;
+   } m_buffers[NUM_BUFFERS];
+ 
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
+index f30f771..c78bc86 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
+@@ -585,7 +585,11 @@ bool CLinuxRendererGLES::WantsDVConversion(const VideoPicture& picture) const
+ 
+ bool CLinuxRendererGLES::LibplaceboKneeWanted() const
+ {
+-  return m_videoSettings.m_ToneMapMethod == VS_TONEMAPMETHOD_BT2390_LIBPLACEBO;
++  // Hades: while frame-by-frame dynamic tone mapping is on, its curve decides the knee question,
++  // not the method of the video (DVBRIDGE::ToneMapMethodOf()); with it off, the video's own method
++  // is the authority again
++  return static_cast<ETONEMAPMETHOD>(DVBRIDGE::ToneMapMethodOf(m_videoSettings.m_ToneMapMethod)) ==
++         VS_TONEMAPMETHOD_BT2390_LIBPLACEBO;
+ }
+ 
+ bool CLinuxRendererGLES::WantsPlainMapping(const VideoPicture& picture) const
+@@ -981,11 +985,7 @@ void CLinuxRendererGLES::AddVideoPicture(const VideoPicture &picture, int index)
+   // Hades: counted for the whole process, not for this renderer: the window system tells by it
+   // whether the picture that a frame draws is the one that is on the screen, which an earlier
+   // renderer may have drawn (CWinSystemGbmGLESContext::RenderDVBridge())
+-  static std::atomic<unsigned int> serials{0};
+-  unsigned int serial = ++serials;
+-  if (serial == 0)
+-    serial = ++serials;
+-  buf.doviSerial = serial;
++  buf.doviSerial = DVBRIDGE::NextPictureSerial();
+   // (DVD_TIME_BASE units, which are those of doviSourcePts: microseconds)
+   buf.doviDuration = picture.iDuration > 0 ? picture.iDuration : 0.0;
+   buf.doviMeasured = picture.doviMeasured;
+diff --git a/xbmc/rendering/gles/GuiCompositeShaderGLES.cpp b/xbmc/rendering/gles/GuiCompositeShaderGLES.cpp
+index ccd5c8f..8a0a1a1 100644
+--- a/xbmc/rendering/gles/GuiCompositeShaderGLES.cpp
++++ b/xbmc/rendering/gles/GuiCompositeShaderGLES.cpp
+@@ -40,7 +40,8 @@ float SRGBToLinear(float v)
+ 
+ } // namespace
+ 
+-CGuiCompositeShaderGLES::CGuiCompositeShaderGLES(const std::string& prefix)
++CGuiCompositeShaderGLES::CGuiCompositeShaderGLES(const std::string& prefix, bool limited)
++  : m_limited(limited)
+ {
+   VertexShader()->LoadSource("gles_gui_composite.vert", prefix);
+   PixelShader()->LoadSource("gles_gui_composite.frag", prefix);
+@@ -52,6 +53,8 @@ CGuiCompositeShaderGLES::~CGuiCompositeShaderGLES()
+     glDeleteTextures(1, &m_lutDegammaTexId);
+   if (m_lutTFTexId)
+     glDeleteTextures(1, &m_lutTFTexId);
++  if (m_lutGrayTexId)
++    glDeleteTextures(1, &m_lutGrayTexId);
+ }
+ 
+ void CGuiCompositeShaderGLES::OnCompiledAndLinked()
+@@ -61,6 +64,8 @@ void CGuiCompositeShaderGLES::OnCompiledAndLinked()
+   m_hSamp = glGetUniformLocation(ProgramHandle(), "u_samp");
+   m_hLutDegamma = glGetUniformLocation(ProgramHandle(), "u_lutDegamma");
+   m_hLutTF = glGetUniformLocation(ProgramHandle(), "u_lutTF");
++  m_hLutGray = glGetUniformLocation(ProgramHandle(), "u_lutGray");
++  m_hGrayFast = glGetUniformLocation(ProgramHandle(), "u_grayFast");
+   m_hProj = glGetUniformLocation(ProgramHandle(), "u_proj");
+   m_hOotfGamma = glGetUniformLocation(ProgramHandle(), "u_ootfGamma");
+   // Hades: (-1 where the shader converts with the LUTs: no highp)
+@@ -70,6 +75,7 @@ void CGuiCompositeShaderGLES::OnCompiledAndLinked()
+   glUniform1i(m_hSamp, 0);
+   glUniform1i(m_hLutDegamma, 1);
+   glUniform1i(m_hLutTF, 2);
++  glUniform1i(m_hLutGray, 3);
+   glUseProgram(0);
+ }
+ 
+@@ -84,16 +90,23 @@ bool CGuiCompositeShaderGLES::OnEnabled()
+   if (m_hHlgWhite >= 0)
+     glUniform1f(m_hHlgWhite, m_hlgWhite);
+ 
++  // Hades: grey by one lookup: the table where it was made, and the shader told so; where it was
++  // not, the degamma LUT of the unit all the same, for a driver that would sample what the shader
++  // is told not to
++  if (m_hGrayFast >= 0)
++    glUniform1i(m_hGrayFast, m_lutGrayTexId ? 1 : 0);
+   glActiveTexture(GL_TEXTURE1);
+   glBindTexture(GL_TEXTURE_2D, m_lutDegammaTexId);
+   glActiveTexture(GL_TEXTURE2);
+   glBindTexture(GL_TEXTURE_2D, m_lutTFTexId);
++  glActiveTexture(GL_TEXTURE3);
++  glBindTexture(GL_TEXTURE_2D, m_lutGrayTexId ? m_lutGrayTexId : m_lutDegammaTexId);
+   glActiveTexture(GL_TEXTURE0);
+ 
+   return true;
+ }
+ 
+-GLuint CGuiCompositeShaderGLES::CreateLUTTexture(const std::vector<float>& data)
++GLuint CGuiCompositeShaderGLES::CreateLUTTexture(const std::vector<float>& data, bool nearest)
+ {
+   while (glGetError() != GL_NO_ERROR)
+   {
+@@ -110,7 +123,20 @@ GLuint CGuiCompositeShaderGLES::CreateLUTTexture(const std::vector<float>& data)
+   // format with well-defined behavior. Half-float precision is sufficient for
+   // a 1024-entry LUT.
+   bool uploaded = false;
+-  glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, data.size(), 1, 0, GL_RED, GL_FLOAT, data.data());
++  // Hades: a table read exact a code (nearest) takes its values in 32-bit floats where the GPU
++  // has them, that no rounding of the storage stands between the entry and the pixel
++  if (nearest)
++  {
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, data.size(), 1, 0, GL_RED, GL_FLOAT, data.data());
++    if (glGetError() == GL_NO_ERROR)
++      uploaded = true;
++    else
++      while (glGetError() != GL_NO_ERROR)
++      {
++      }
++  }
++  if (!uploaded)
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, data.size(), 1, 0, GL_RED, GL_FLOAT, data.data());
+   if (glGetError() == GL_NO_ERROR)
+   {
+     uploaded = true;
+@@ -131,8 +157,8 @@ GLuint CGuiCompositeShaderGLES::CreateLUTTexture(const std::vector<float>& data)
+                 data.size());
+   }
+ 
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glBindTexture(GL_TEXTURE_2D, 0);
+@@ -173,6 +199,25 @@ std::vector<float> CGuiCompositeShaderGLES::GeneratePQLUT(float sdrPeak)
+   return lut;
+ }
+ 
++std::vector<float> CGuiCompositeShaderGLES::GenerateGrayPQLUT(float pqPeak, bool limited)
++{
++  // Hades: the signal of grey, code for code, as the exact arithmetic of the shader makes it: the
++  // sRGB EOTF, the matrix of BT.709 -> BT.2020 (which leaves grey grey: its rows add to 1), the
++  // PQ of the GUI white the LUTs have baked in, and the limited range of the target where the
++  // prefix gives it one. An entry a code, read without interpolation: the shader skips its powers
++  // for the pixel
++  std::vector<float> lut(LUT_SIZE);
++  for (int i = 0; i < LUT_SIZE; i++)
++  {
++    const float x = static_cast<float>(i) / (LUT_SIZE - 1);
++    float y = ForwardPQ(SRGBToLinear(x) * pqPeak);
++    if (limited)
++      y = y * ((235.0f - 16.0f) / 255.0f) + (16.0f / 255.0f);
++    lut[i] = y;
++  }
++  return lut;
++}
++
+ bool CGuiCompositeShaderGLES::CreateLUTs(int colorTransfer, int referenceWhite)
+ {
+   // GUI white relative to the BT.2408 reference white (203 nits); 1.0 gives Kodi's LUTs bit for bit
+@@ -182,6 +227,7 @@ bool CGuiCompositeShaderGLES::CreateLUTs(int colorTransfer, int referenceWhite)
+   // that a failed rebuild during compositing keeps a working GUI.
+   GLuint degamma = 0;
+   GLuint tf = 0;
++  GLuint gray = 0;
+   float ootfGamma = 0.0f;
+   float pqPeak = 203.0f * white / 10000.0f;
+   float hlgWhite = 1.0f;
+@@ -201,6 +247,12 @@ bool CGuiCompositeShaderGLES::CreateLUTs(int colorTransfer, int referenceWhite)
+       glDeleteTextures(1, &degamma);
+       return false;
+     }
++    // Hades: grey by one lookup; its failure costs the fast path alone, not the composite: the
++    // shader converts grey by its arithmetic as well
++    gray = CreateLUTTexture(GenerateGrayPQLUT(pqPeak, m_limited), true);
++    if (!gray)
++      CLog::Log(LOGWARNING, "CGuiCompositeShaderGLES::CreateLUTs - failed to create the grey LUT: "
++                            "the GUI is converted by the arithmetic of the shader alone");
+     CLog::Log(LOGDEBUG,
+               "CGuiCompositeShaderGLES::CreateLUTs - created PQ LUT ({} entries), GUI white "
+               "{:.0f} nits",
+@@ -236,8 +288,11 @@ bool CGuiCompositeShaderGLES::CreateLUTs(int colorTransfer, int referenceWhite)
+     glDeleteTextures(1, &m_lutDegammaTexId);
+   if (m_lutTFTexId)
+     glDeleteTextures(1, &m_lutTFTexId);
++  if (m_lutGrayTexId)
++    glDeleteTextures(1, &m_lutGrayTexId);
+   m_lutDegammaTexId = degamma;
+   m_lutTFTexId = tf;
++  m_lutGrayTexId = gray;
+   m_ootfGamma = ootfGamma;
+   m_pqPeak = pqPeak;
+   m_hlgWhite = hlgWhite;
+diff --git a/xbmc/rendering/gles/GuiCompositeShaderGLES.h b/xbmc/rendering/gles/GuiCompositeShaderGLES.h
+index 0fc0932..43042eb 100644
+--- a/xbmc/rendering/gles/GuiCompositeShaderGLES.h
++++ b/xbmc/rendering/gles/GuiCompositeShaderGLES.h
+@@ -16,7 +16,9 @@
+ class CGuiCompositeShaderGLES : public Shaders::CGLSLShaderProgram
+ {
+ public:
+-  explicit CGuiCompositeShaderGLES(const std::string& prefix);
++  //! Hades: limited: the composite writes limited-range codes (KODI_LIMITED_RANGE of the prefix),
++//! for the grey LUT to bake (GenerateGrayPQLUT())
++explicit CGuiCompositeShaderGLES(const std::string& prefix, bool limited = false);
+   ~CGuiCompositeShaderGLES() override;
+ 
+   void SetProjection(const GLfloat* proj) { m_proj = proj; }
+@@ -45,15 +47,24 @@ private:
+   // One entry per RGBA8 input value; increase to match GUI bit depth.
+   static constexpr int LUT_SIZE = 256;
+ 
+-  GLuint CreateLUTTexture(const std::vector<float>& data);
++  //! Hades: nearest: the entries are read exact, one a code of the GUI, without interpolation
++  GLuint CreateLUTTexture(const std::vector<float>& data, bool nearest = false);
+   static std::vector<float> GenerateDegammaLUT(float scale);
+   static std::vector<float> GeneratePQLUT(float sdrPeak);
++  //! Hades: the signal of grey, code for code, as the exact arithmetic of the shader makes it
++  static std::vector<float> GenerateGrayPQLUT(float pqPeak, bool limited);
+ 
+   const GLfloat* m_proj{nullptr};
+   int m_referenceWhite{100};
++  //! Hades: what the prefix defines of the range of the composite (KODI_LIMITED_RANGE), taken at
++  //! construction, for the grey LUT to bake
++  bool m_limited{false};
+ 
+   GLuint m_lutDegammaTexId{0};
+   GLuint m_lutTFTexId{0};
++  //! Hades: grey by one lookup in the composite (GenerateGrayPQLUT()); 0 where it was not made,
++  //! and the shader runs its arithmetic for grey as well
++  GLuint m_lutGrayTexId{0};
+   float m_ootfGamma{0.0f};
+   //! Hades: what the LUTs have baked in, for the exact conversion of the shader where it has highp
+   //! (gles_gui_composite.frag, KODI_GUI_EXACT): the GUI white in PQ units (PQ), and against the
+@@ -66,6 +77,8 @@ private:
+   GLint m_hSamp{-1};
+   GLint m_hLutDegamma{-1};
+   GLint m_hLutTF{-1};
++  GLint m_hLutGray{-1};
++  GLint m_hGrayFast{-1};
+   GLint m_hProj{-1};
+   GLint m_hOotfGamma{-1};
+   GLint m_hPqPeak{-1};
+diff --git a/xbmc/settings/AdvancedSettings.cpp b/xbmc/settings/AdvancedSettings.cpp
+index 8d7a639..c8bbc6f 100644
+--- a/xbmc/settings/AdvancedSettings.cpp
++++ b/xbmc/settings/AdvancedSettings.cpp
+@@ -206,6 +206,8 @@ void CAdvancedSettings::Initialize()
+   m_videoHotplugRelink = true;
+   m_videoDVDrawnTiles = true;
+   m_videoDVGuiCache = true;
++  m_videoDVPicture16 = true;
++  m_videoDVGuiPackFold = true;
+   m_videoDVGpuProfile = true;
+   m_videoDVGpuForceHigh = false;
+   m_videoDVGuiCacheCheck = false;
+@@ -732,6 +734,8 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
+     XMLUtils::GetBoolean(pElement, "hotplugrelink", m_videoHotplugRelink);
+     XMLUtils::GetBoolean(pElement, "dvdrawntiles", m_videoDVDrawnTiles);
+     XMLUtils::GetBoolean(pElement, "dvguicache", m_videoDVGuiCache);
++    XMLUtils::GetBoolean(pElement, "dvpicture16", m_videoDVPicture16);
++    XMLUtils::GetBoolean(pElement, "dvguipackfold", m_videoDVGuiPackFold);
+     XMLUtils::GetBoolean(pElement, "dvgpuprofile", m_videoDVGpuProfile);
+     XMLUtils::GetBoolean(pElement, "dvgpuforcehigh", m_videoDVGpuForceHigh);
+     XMLUtils::GetBoolean(pElement, "dvguicachecheck", m_videoDVGuiCacheCheck);
+diff --git a/xbmc/settings/AdvancedSettings.h b/xbmc/settings/AdvancedSettings.h
+index 9f79460..819265e 100644
+--- a/xbmc/settings/AdvancedSettings.h
++++ b/xbmc/settings/AdvancedSettings.h
+@@ -174,6 +174,13 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
+     //! did not change, instead of converting it again (video/dvguicache; the same bytes). Off for a
+     //! measurement of what that saves; video/dvguicachecheck packs those again and compares them
+     bool m_videoDVGuiCache;
++    //! Hades: the picture that Kodi draws the GUI over is held in 16-bit codes, half the bytes of
++    //! its 32-bit floats (the same codes), where the source transport does not take it
++    //! (video/dvpicture16; off for a measurement of what it saves)
++    bool m_videoDVPicture16;
++    //! Hades: the pack of the converted transport composites the GUI itself, and the pass of the
++    //! composite into the picture is not run (video/dvguipackfold; off for a measurement)
++    bool m_videoDVGuiPackFold;
+     //! Hades: amdgpu's COMPUTE power profile while the Dolby Vision bridge draws, where the driver
+     //! has power profiles (video/dvgpuprofile; the same bytes, at a higher clock). Off for a
+     //! measurement of what it gives
+diff --git a/xbmc/settings/Settings.h b/xbmc/settings/Settings.h
+index 9d8d2f8..7e72c9e 100644
+--- a/xbmc/settings/Settings.h
++++ b/xbmc/settings/Settings.h
+@@ -575,6 +575,7 @@ public:
+   //! clause 6; 0: in IPT-PQ-c2, as licensed players are reported to send it; 1: reconstructed and
+   //! converted to BT.2020) ...
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVTRANSPORT = "videoscreen.hadesdvtransport";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDVGUIPACKFOLD = "videoscreen.hadesdvguipackfold";
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVGAMUTFINE = "videoscreen.hadesdvgamutfine";
+   //! ... and whether a picture on the screen is kept there instead of being drawn again
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVKEEPREPEATS = "videoscreen.hadesdvkeeprepeats";
+diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+index 7fc210c..7cb7ed5 100644
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -617,13 +617,19 @@ void CWinSystemGbmGLESContext::PresentRender(bool rendered, bool videoLayer)
+       aheadAsked = true;
+       cover = ahead ? CDVBridgeGLES::Cover::BARS : CDVBridgeGLES::Cover::MEASURE;
+     }
++    // Hades: the GUI of the fold, taken before the frame forgets it: Pack() below hands it to the
++    // pack, which blends it over the picture itself
++    const unsigned foldGuiTexture = m_dvFoldGuiTexture;
++    const float foldGuiPeak = m_dvFoldGuiPeak;
+     m_dvDrawnOver = false;
++    m_dvFoldGuiTexture = 0; // (Hades: the fold of the GUI into the pack, handed above or not)
+     // Hades: (the level of the conversion under the GUI of this frame, once it is packed)
+     if (m_dvFrame)
+       m_dvGuiDrawn = 0;
+     // EGL's window framebuffer has a bottom-left GL origin, while transport
+     // metadata is indexed from the top-left of the HDMI raster.
+-    if (m_dvFrame && m_dvBridge && m_dvBridge->Pack(0, m_nWidth, m_nHeight, true, cover))
++    if (m_dvFrame && m_dvBridge &&
++        m_dvBridge->Pack(0, m_nWidth, m_nHeight, true, cover, foldGuiTexture, foldGuiPeak))
+     {
+       // Hades: the level its pixels drawn over were converted at (CDVGuiLevel): its time and its
+       // presentation count for that level
+@@ -2123,7 +2129,7 @@ bool CWinSystemGbmGLESContext::SetGuiCompositing(int colorTransfer)
+         defines += "#define KODI_LIMITED_RANGE 1\n";
+         m_compositeLimited = true;
+       }
+-      m_compositeShader = std::make_unique<CGuiCompositeShaderGLES>(defines);
++      m_compositeShader = std::make_unique<CGuiCompositeShaderGLES>(defines, m_compositeLimited);
+       ++m_compositeRevision;
+       if (!m_compositeShader->CompileAndLink())
+       {
+@@ -2437,6 +2443,29 @@ void CWinSystemGbmGLESContext::CompositeGui()
+       }
+       return;
+     }
++    // Hades (the fold): the pack of the converted transport composites the GUI itself, from this
++    // texture with the same exact conversion the composite below converts it by: nothing is drawn
++    // into the picture, and the pass of the composite - every byte of it bandwidth, measured - is
++    // not run. The pack fetches the GUI over the whole raster (the composite fetched the
++    // rectangles of the tile mask alone) and blends it over the picture it already reads.
++    if (m_dvBridge->GuiPackFold())
++    {
++      // Hades: the switch of the picture quality (videoscreen.hadesdvguipackfold), read a frame
++      // at a time - both ways draw the same picture, so a change takes effect at once, not from
++      // the next video. advancedsettings.xml keeps its say for a measurement (dvguipackfold).
++      const auto component = CServiceBroker::GetSettingsComponent();
++      const auto settings = component ? component->GetSettings() : nullptr;
++      const bool fold =
++          !settings || !settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVGUIPACKFOLD) ||
++          settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVGUIPACKFOLD);
++      if (fold && (!component || component->GetAdvancedSettings()->m_videoDVGuiPackFold))
++      {
++        m_dvDrawnOver = true;
++        m_dvFoldGuiTexture = m_guiFbo.Texture();
++        m_dvFoldGuiPeak = m_compositeShader ? m_compositeShader->GetPQPeak() : 0.0203f;
++        return;
++      }
++    }
+     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+     glGetIntegerv(GL_VIEWPORT, previousViewport);
+     // The GUI covers the whole picture, black bars included, whatever scissor rectangle is set.
+@@ -2472,7 +2501,15 @@ void CWinSystemGbmGLESContext::CompositeGui()
+     m_dvDrawnOver = true;
+ #endif
+   if (coverage)
+-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
++  {
++    // Hades: the picture of 16-bit codes has its alpha tell the same story in [0, 1] (nothing
++    // drawn: 1.0, covered: 1 - a of what covers it): the colour blended as always, the alpha only
++    // taken down by what covers it (the floats of before, which hold 2.0, take a + dst (1 - a))
++    if (m_dvBridge && m_dvBridge->Picture16())
++      glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
++    else
++      glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
++  }
+   else if (m_DRM->GetVideoPlane() && m_DRM->GetGuiPlane())
+     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
+   else
+@@ -3472,6 +3509,15 @@ bool DVBRIDGE::WantsHdr10Adapt(const VideoPicture* picture)
+   return window && picture && window->Hdr10AdaptWanted(*picture);
+ }
+ 
++unsigned int DVBRIDGE::NextPictureSerial()
++{
++  static std::atomic<unsigned int> serials{0};
++  unsigned int serial = ++serials;
++  if (serial == 0)
++    serial = ++serials;
++  return serial;
++}
++
+ bool DVBRIDGE::HdrAsSdrOfStream(bool dolbyVision, bool pq, bool hlg)
+ {
+   const auto* window = dynamic_cast<CWinSystemGbmGLESContext*>(CServiceBroker::GetWinSystem());
+diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.h b/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
+index 4af2a15..7fc710a 100644
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
+@@ -1439,6 +1439,11 @@ private:
+   //! Hades: something was drawn over the picture of this frame (the GUI, subtitles): see
+   //! PresentRender()
+   bool m_dvDrawnOver = false;
++  //! Hades: the fold of the GUI into the pack (advancedsettings.xml: dvguipackfold): the GUI
++  //! texture of this frame handed to Pack() and its white in PQ units, where nothing was
++  //! composited into the picture for the pack to blend it itself
++  unsigned m_dvFoldGuiTexture = 0;
++  float m_dvFoldGuiPeak = 0.0f;
+   void DVGpuTimerTag(bool measured,
+                      bool path,
+                      bool asked,

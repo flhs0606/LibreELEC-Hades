@@ -1,0 +1,171 @@
+--- a/xbmc/settings/Settings.h
++++ b/xbmc/settings/Settings.h
+--- 
++++ 
+@@ -493,6 +493,7 @@
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRGAMUT = "videoscreen.hadesdtmhdrgamut";
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRCURVE = "videoscreen.hadesdtmhdrcurve";
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDTMHDRRECOVERY = "videoscreen.hadesdtmhdrrecovery";
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDTMFAST = "videoscreen.hadesdtmfast";
+   //! Hades: the quality preset (Standard, High, Ultra): what it writes through is the engine's own
+   static constexpr auto SETTING_VIDEOSCREEN_HADESQUALITYPRESET = "videoscreen.hadesqualitypreset";
+   //! Hades: the peak that the content mapping v4.0 is decided against, set by hand (cd/m2)
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+--- 
++++ 
+@@ -3643,6 +3643,25 @@
+             <maximum>50</maximum>
+           </constraints>
+           <control type="spinner" format="integer" />
++        </setting>
++        <setting id="videoscreen.hadesdtmfast" type="boolean" label="41883" help="41884">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <dependencies>
++            <dependency type="enable">
++              <or>
++                <condition setting="videoscreen.hadesdtmsdr" operator="is">true</condition>
++                <condition setting="videoscreen.hadesdtmhdr" operator="is">true</condition>
++              </or>
++            </dependency>
++          </dependencies>
++          <level>1</level>
++          <default>false</default>
++          <control type="toggle" />
+         </setting>
+       </group>
+       <!-- Hades: the quality preset: how much of the graphics card's power is spent on the
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
+--- 
++++ 
+@@ -1534,6 +1534,10 @@
+ bool DtmToHdr();
+ //! ... whether either branch is on (DtmToSdr() or DtmToHdr())
+ bool DtmTakesOutput();
++//! Hades: the fast mode of the mapping (videoscreen.hadesdtmfast): on while it takes the
++//! output; the engine, the bridge and the codec read its matrix in the place of the settings
++//! the quality preset manages, and the measurement is taken of every other picture
++bool DtmFast();
+ /*!
+  * \brief Hades: the tone mapping method that decides by, while frame-by-frame dynamic tone mapping
+  *        is on: that of its curve (a spline curve unlocks the decision only: BT.2390, as the
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+--- 
++++ 
+@@ -3177,6 +3177,11 @@
+ // output reads it when it starts, CWinSystemGbmGLESContext::DVEngineRead())
+ bool ConversionComposerCCM()
+ {
++  // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) composes with
++  // libplacebo's reshaping, whatever the preset says: measured the faster of the two on the
++  // smallest card this build is made for)
++  if (DVBRIDGE::DtmFast())
++    return false;
+   const auto component = CServiceBroker::GetSettingsComponent();
+   const auto settings = component ? component->GetSettings() : nullptr;
+   const auto advanced = component ? component->GetAdvancedSettings() : nullptr;
+@@ -3195,6 +3200,10 @@
+ // output reads it when it starts (CWinSystemGbmGLESContext::DVEngineRead())
+ bool ConversionFineGamut()
+ {
++  // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) keeps the coarser gamut
++  // mapping table, whatever the preset says)
++  if (DVBRIDGE::DtmFast())
++    return false;
+   const auto component = CServiceBroker::GetSettingsComponent();
+   return BoolSetting(component ? component->GetSettings() : nullptr,
+                      CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE, false);
+@@ -3809,6 +3818,20 @@
+ bool DVBRIDGE::DtmTakesOutput()
+ {
+   return DtmToSdr() || DtmToHdr();
++}
++
++bool DVBRIDGE::DtmFast()
++{
++  // Hades: the fast mode of the mapping (videoscreen.hadesdtmfast): while one of its
++  // branches takes the output, what the quality preset manages is not asked: the engine, the
++  // bridge and the codec take the matrix of the fast mode in its place (the composition of
++  // libplacebo, the coarser gamut mapping table, the fidelity step-down left to choose
++  // itself, the residual of a full enhancement layer left undecoded, the measurement of
++  // every other picture); with the mapping off it is nothing
++  const auto settings = SettingsNow();
++  return DtmTakesOutput() && settings &&
++         settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMFAST) &&
++         settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDTMFAST);
+ }
+ 
+ int DVBRIDGE::ToneMapMethodOf(int method)
+@@ -5914,6 +5937,15 @@
+   read.trims = !settings || !settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVNOTRIMS) ||
+                !settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVNOTRIMS);
+   read.fineGamut = BoolSetting(settings, CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE, false);
++  // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) reads its own fidelity,
++  // composition and gamut mapping table in the place of the preset's, while the mapping
++  // takes the output: what keeps the smallest of cards in step with the film)
++  if (DVBRIDGE::DtmFast())
++  {
++    read.step = static_cast<int>(CDVEngineSettings::Step::AUTOMATIC);
++    read.composer = static_cast<int>(CDVEngineSettings::Composer::LIBPLACEBO);
++    read.fineGamut = false;
++  }
+   CDVEngineSettings::Advanced fromFile;
+   if (advanced)
+   {
+@@ -6228,6 +6260,16 @@
+ 
+ bool CWinSystemGbmGLESContext::DVMeasurePicture(const CDVBridgeGLES::Layer& layer)
+ {
++  // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) measures every other
++  // picture only: one that is not measured keeps the level 1 statistics last taken, as a
++  // picture measured after its presentation does)
++  static bool fastEveryOther = false;
++  if (m_dvConvertMapping.enabled && DVBRIDGE::DtmFast())
++  {
++    fastEveryOther = !fastEveryOther;
++    if (!fastEveryOther)
++      return true;
++  }
+   const bool dtmNeedsMeasure = m_dvConvertMapping.enabled;
+   if (!dtmNeedsMeasure && (!m_dvBridge || !m_outputHandover.HoldsOutput()))
+     return false;
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
+--- 
++++ 
+@@ -774,7 +774,11 @@
+                                !(hints.flags & StreamFlags::FLAG_STILL_IMAGES),
+                            m_pCodecContext->extradata, m_pCodecContext->extradata_size);
+ #ifdef HAVE_DVBRIDGE
+-  if (NeedsDVEnhancement())
++  // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) leaves the residual of a
++  // full enhancement layer undecoded: the stream plays as one whose enhancement layer cannot
++  // be decoded, its base layer with the RPU, its pictures at the resolution of the base
++  // layer)
++  if (NeedsDVEnhancement() && !DVBRIDGE::DtmFast())
+   {
+     AVCodecParameters* parameters = avcodec_parameters_alloc();
+     if (!parameters)
+--- a/system/language-overrides/resource.language.zh_cn.po
++++ b/system/language-overrides/resource.language.zh_cn.po
+--- 
++++ 
+@@ -120,3 +120,11 @@
+ msgctxt "#41882"
+ msgid "Ultra"
+ msgstr "极致"
++
++msgctxt "#41883"
++msgid "Fast"
++msgstr "快速"
++
++msgctxt "#41884"
++msgid "The mapping is done as the smallest of cards keeps up with it: the residual of a full enhancement layer is not decoded (the picture takes the resolution of its base layer, the colour of Dolby Vision kept), the composition is libplacebo's reshaping, and every other picture is measured. It does nothing while the frame-by-frame mapping is off; it takes effect from the next video."
++msgstr "逐帧映射按小显卡也跟得上的方式做：完整增强层的残差不解码（画面取其基层的分辨率，杜比视界的色彩保留），合成用 libplacebo 的重构，画面隔帧测量。仅在逐帧映射开启期间生效；自下一部视频起生效。"

@@ -1,0 +1,89 @@
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+--- 
++++ 
+@@ -3438,6 +3438,24 @@
+         </setting>
+       </group>
+       <group id="10" label="41854">
++        <setting id="videoscreen.hadesdtmfastmode" type="integer" label="41883" help="41884">
++          <requirement>
++            <and>
++              <condition>HAVE_GBM</condition>
++              <condition>HAS_GLES</condition>
++            </and>
++          </requirement>
++          <level>1</level>
++          <default>0</default>
++          <constraints>
++            <options>
++              <option label="41885">0</option>
++              <option label="41886">1</option>
++              <option label="41887">2</option>
++            </options>
++          </constraints>
++          <control type="spinner" format="string" />
++        </setting>
+         <setting id="videoscreen.hadesdtmsdr" type="boolean" label="41856" help="41857">
+           <requirement>
+             <and>
+@@ -3482,7 +3500,7 @@
+             <dependency type="enable" setting="videoscreen.hadesdtmsdr" operator="is">true</dependency>
+           </dependencies>
+           <level>2</level>
+-          <default>1.8</default>
++          <default>2.4</default>
+           <constraints>
+             <minimum>1.8</minimum>
+             <step>0.1</step>
+@@ -3543,7 +3561,7 @@
+             <dependency type="enable" setting="videoscreen.hadesdtmsdr" operator="is">true</dependency>
+           </dependencies>
+           <level>2</level>
+-          <default>20</default>
++          <default>0</default>
+           <constraints>
+             <minimum>0</minimum>
+             <step>5</step>
+@@ -3636,7 +3654,7 @@
+             <dependency type="enable" setting="videoscreen.hadesdtmhdr" operator="is">true</dependency>
+           </dependencies>
+           <level>2</level>
+-          <default>20</default>
++          <default>0</default>
+           <constraints>
+             <minimum>0</minimum>
+             <step>5</step>
+@@ -3666,32 +3684,6 @@
+           <default>false</default>
+           <control type="toggle" />
+         </setting>
+-        <setting id="videoscreen.hadesdtmfastmode" type="integer" label="41883" help="41884">
+-          <requirement>
+-            <and>
+-              <condition>HAVE_GBM</condition>
+-              <condition>HAS_GLES</condition>
+-            </and>
+-          </requirement>
+-          <dependencies>
+-            <dependency type="enable">
+-              <or>
+-                <condition setting="videoscreen.hadesdtmsdr" operator="is">true</condition>
+-                <condition setting="videoscreen.hadesdtmhdr" operator="is">true</condition>
+-              </or>
+-            </dependency>
+-          </dependencies>
+-          <level>1</level>
+-          <default>0</default>
+-          <constraints>
+-            <options>
+-              <option label="41885">0</option>
+-              <option label="41886">1</option>
+-              <option label="41887">2</option>
+-            </options>
+-          </constraints>
+-          <control type="spinner" format="string" />
+-        </setting>
+       </group>
+       <!-- Hades: the quality preset: how much of the graphics card's power is spent on the
+            picture (the composer, the gamut table and the fidelity step-down of the engine

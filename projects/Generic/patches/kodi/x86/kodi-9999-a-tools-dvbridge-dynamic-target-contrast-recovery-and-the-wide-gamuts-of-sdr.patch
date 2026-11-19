@@ -1,0 +1,52 @@
+--- a/tools/dvbridge/dvbridge_placebo.h
++++ b/tools/dvbridge/dvbridge_placebo.h
+@@ -130,7 +130,8 @@
+ /* Hades: the white of a custom SDR target, cd/m2, and its gammas: the pure powers that libplacebo has as the
+  * EOTF of an SDR signal (PL_COLOR_TRC_GAMMA18 to _GAMMA28), 2.4 being BT.1886's of the reference */
+ #define DVBRIDGE_SDR_WHITE_MIN 20.0f
+-#define DVBRIDGE_SDR_WHITE_MAX 500.0f
++/* Hades: custom SDR target white ceiling extended to 1500 nits for high-brightness TVs */
++#define DVBRIDGE_SDR_WHITE_MAX 1500.0f
+ #define DVBRIDGE_SDR_GAMMA_MIN 1.8f
+ #define DVBRIDGE_SDR_GAMMA_MAX 2.8f
+ struct dvbridge_hdr10_mapping {
+@@ -174,6 +175,10 @@
+      * value of the picture. DVBRIDGE_TRIMS_OFF_UNSAID where nothing sets it: nothing looked for,
+      * nothing said, as before, bit for bit. */
+     int trims_off;
++
++    /* Projector DTM extensions */
++    bool dynamic_target;             /* enable dynamic virtual peak scaling */
++    float contrast_recovery;         /* 0.0f (off) to 1.0f (strong) */
+ };
+ /* Hades: why the trim pass of a mapping is not drawn (dvbridge_hdr10_mapping::trims_off) */
+ enum {
+@@ -201,6 +206,8 @@
+     if (a->peak != b->peak || a->gamut != b->gamut || a->curve != b->curve ||
+         a->target != b->target || a->source_known != b->source_known || a->black != b->black ||
+         a->gamma22 != b->gamma22 || a->gamma != b->gamma || a->trims != b->trims ||
++        a->dynamic_target != b->dynamic_target ||
++        a->contrast_recovery != b->contrast_recovery ||
+         a->trims_off != b->trims_off)
+         return false;
+     for (int i = 0; i < 8; ++i)
+
+--- a/tools/dvbridge/dvbridge_placebo.c
++++ b/tools/dvbridge/dvbridge_placebo.c
+@@ -167,9 +167,14 @@
+     if (m->gamma != 0.0f && (m->target != DVBRIDGE_HDR10_TARGET_SDR || m->gamma22 ||
+                              dvbridge_sdr_transfer(m) == PL_COLOR_TRC_UNKNOWN))
+         return false;
+-    /* Hades: an SDR output is BT.709 (Kodi signals no other gamut there) */
++    /* Hades: an SDR output allows BT.709, DCI-P3, or BT.2020 */
+     if (m->target != DVBRIDGE_HDR10_TARGET_HDR10 &&
+-        (m->target != DVBRIDGE_HDR10_TARGET_SDR || m->gamut != DVBRIDGE_HDR10_GAMUT_BT709))
++        (m->target != DVBRIDGE_HDR10_TARGET_SDR ||
++         (m->gamut != DVBRIDGE_HDR10_GAMUT_BT709 &&
++          m->gamut != DVBRIDGE_HDR10_GAMUT_P3_D65 &&
++          m->gamut != DVBRIDGE_HDR10_GAMUT_BT2020)))
++        return false;
++    if (!(m->contrast_recovery >= 0.0f && m->contrast_recovery <= 1.0f))
+         return false;
+     if (m->source_known) {
+         for (int i = 0; i < 8; ++i)

@@ -1,0 +1,317 @@
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVPlaybackPolicy.h
+@@ -1527,6 +1527,19 @@
+                  "draws whole frames only"
+                : otherwise;
+ }
++//! Hades: frame-by-frame dynamic tone mapping is on, to SDR (videoscreen.hadesdtmsdr) or to HDR
++//! (videoscreen.hadesdtmhdr): its branch takes the output (DVConversionNewVideo()) and its curve
++//! takes the place of the video's tone mapping method (ToneMapMethodOf())
++bool DtmToSdr();
++bool DtmToHdr();
++//! ... whether either branch is on (DtmToSdr() or DtmToHdr())
++bool DtmTakesOutput();
++/*!
++ * \brief Hades: the tone mapping method that decides by, while frame-by-frame dynamic tone mapping
++ *        is on: that of its curve (a spline curve unlocks the decision only: BT.2390, as the
++ *        mapping itself takes it), else the video's own (\a method)
++ */
++int ToneMapMethodOf(int method);
+ //! Hades: the renderer's question for a picture that is not reconstructed (PlainMappingEligible()),
+ //! by the tone mapping method of its video (ETONEMAPMETHOD) and the output as it is now
+ bool WantsPlainMapping(const VideoPicture* picture, int toneMapMethod);
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -3211,6 +3211,8 @@
+ DVBRIDGE::ConversionTarget DVBRIDGE::ConversionTargetOf(const CDVDStreamInfo& stream,
+                                                         int toneMapMethod)
+ {
++  // Hades: the curve of frame-by-frame dynamic tone mapping decides while one of its branches is on
++  toneMapMethod = ToneMapMethodOf(toneMapMethod);
+   // As HDR10 only where the picture can be sent as HDR10; on an output that does not take it,
+   // mapped to SDR where the base layer is no picture by itself (Hades: or is HDR10, with the tone
+   // mapping method of a reference display), and otherwise the stream goes to the decoder it went
+@@ -3370,6 +3372,8 @@
+ 
+ bool DVBRIDGE::WantsConversion(const VideoPicture* picture, int toneMapMethod)
+ {
++  // Hades: the curve of frame-by-frame dynamic tone mapping decides while one of its branches is on
++  toneMapMethod = ToneMapMethodOf(toneMapMethod);
+   // Not by whether this picture has its metadata: one without it is only not reconstructed, and
+   // the decoder moves a stream whose metadata stays missing to the ordinary output by changing
+   // its hdrType. (Hades: and only for what it was decoded for, HDR10 or SDR, while the output
+@@ -3394,6 +3398,8 @@
+ 
+ bool DVBRIDGE::WantsPlainMapping(const VideoPicture* picture, int toneMapMethod)
+ {
++  // Hades: the curve of frame-by-frame dynamic tone mapping decides while one of its branches is on
++  toneMapMethod = ToneMapMethodOf(toneMapMethod);
+   const auto* window = dynamic_cast<CWinSystemGbmGLESContext*>(CServiceBroker::GetWinSystem());
+   if (!window || !picture)
+     return false;
+@@ -3534,6 +3540,11 @@
+   // be adapted to
+   if (HdrAsSdr(picture))
+     return false;
++  // Hades: frame-by-frame dynamic tone mapping to HDR (videoscreen.hadesdtmhdr): every HDR picture
++  // is adapted, to the target chosen there (TakeHdr10AdaptMapping() takes it), not by what this
++  // video decided
++  if (DVBRIDGE::DtmToHdr())
++    return !m_plainDisabled && m_dvConvertDisplay;
+   // Hades: decided once a video: the first caller decides in local and publishes it, one that comes
+   // meanwhile uses its own (HDR10_ADAPT::CState; the second independent review of 1.0 RC6, R-A1)
+   bool peakSet = false, published = false;
+@@ -3626,6 +3637,28 @@
+       std::fill(std::begin(mapping.source_xy), std::end(mapping.source_xy), 0.0f);
+     }
+   }
++  // Hades: frame-by-frame dynamic tone mapping to HDR (videoscreen.hadesdtmhdr): the target of
++  // the adaptation is the user's (its peak, its gamut and its curve), with its contrast recovery
++  if (DVBRIDGE::DtmToHdr())
++  {
++    if (settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRPEAK))
++      mapping.peak =
++          static_cast<float>(settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRPEAK));
++    if (settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRGAMUT))
++      switch (settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRGAMUT))
++      {
++        case 0: mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT2020; break;
++        default: mapping.gamut = DVBRIDGE_HDR10_GAMUT_P3_D65; break;
++      }
++    if (settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRCURVE))
++      mapping.curve = dvbridge_hdr10_curve_of_setting(
++          settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRCURVE));
++    mapping.dynamic_target = true;
++    mapping.contrast_recovery =
++        settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRRECOVERY)
++            ? settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRRECOVERY) / 100.0f
++            : 0.0f;
++  }
+   if (!dvbridge_hdr10_mapping_valid(&mapping))
+     mapping = dvbridge_hdr10_mapping{};
+   static const char* const gamuts[] = {"BT.2020", "DCI-P3 (D65)", "BT.709"};
+@@ -3753,6 +3786,41 @@
+     window->DisablePlainMapping(reason);
+ }
+ 
++bool DVBRIDGE::DtmToSdr()
++{
++  const auto settings = SettingsNow();
++  return settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDR) &&
++         settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDR);
++}
++
++bool DVBRIDGE::DtmToHdr()
++{
++  const auto settings = SettingsNow();
++  return settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDR) &&
++         settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDR);
++}
++
++bool DVBRIDGE::DtmTakesOutput()
++{
++  return DtmToSdr() || DtmToHdr();
++}
++
++int DVBRIDGE::ToneMapMethodOf(int method)
++{
++  // Hades: the curve of the branch that is on takes the place of the video's tone mapping method
++  // at every place that asks by it; without the branches, the choice of the video is the authority
++  // again
++  if (!DtmTakesOutput())
++    return method;
++  const bool sdr = DtmToSdr();
++  const auto settings = SettingsNow();
++  const char* const curve = sdr ? CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRCURVE
++                                : CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRCURVE;
++  return settings && settings->GetSetting(curve) && settings->GetInt(curve) == 2
++             ? VS_TONEMAPMETHOD_BT2390_LIBPLACEBO
++             : VS_TONEMAPMETHOD_BT2390;
++}
++
+ void CWinSystemGbmGLESContext::DVConversionNewVideo()
+ {
+   // Hades: (a new video: what the player information says of the menus is of this one)
+@@ -3783,6 +3851,27 @@
+                      : static_cast<int>(DVBRIDGE::HdrAsSdr::NEVER);
+     m_hdrAsSdrTold = false;
+   }
++  // Hades: frame-by-frame dynamic tone mapping takes the output (design-dtm-quality-presets-
++  // refactor.md, 5.2): to SDR, whatever the display takes, without HDR signalling (the HDR videos
++  // the display would have taken go out as the others, HdrAsSdr ALL); or to HDR10, whatever the
++  // settings say of HDR, with the peak of its target
++  if (DVBRIDGE::DtmToSdr() && DVBRIDGE::DtmToHdr())
++    CLog::Log(LOGWARNING,
++              "DVBridge: both branches of frame-by-frame dynamic tone mapping are on in the "
++              "settings (videoscreen.hadesdtmsdr, videoscreen.hadesdtmhdr): the one to SDR takes "
++              "the output");
++  if (DVBRIDGE::DtmToSdr())
++  {
++    m_dvConvertDisplay = false;
++    m_dvConvertSdr = m_renderableType == EGL_OPENGL_ES3_BIT;
++    m_hdrAsSdr = static_cast<int>(DVBRIDGE::HdrAsSdr::ALL);
++  }
++  else if (DVBRIDGE::DtmToHdr())
++  {
++    m_dvConvertDisplay = m_renderableType == EGL_OPENGL_ES3_BIT;
++    m_dvConvertSdr = false;
++    m_hdrAsSdr = static_cast<int>(DVBRIDGE::HdrAsSdr::NEVER);
++  }
+   // Hades: HDR10 adapted to the display is decided again for each video
+   m_hdr10Adapt.Reset();
+   // Hades: the depth of the output is asked again in each video
+@@ -4993,24 +5082,74 @@
+     // that one (VS_TONEMAPMETHOD_BT2390_LIBPLACEBO)
+     if (libplaceboKnee)
+       mapping.curve = DVBRIDGE_HDR10_CURVE_BT2390_LIBPLACEBO;
++    // Hades: frame-by-frame dynamic tone mapping to SDR (videoscreen.hadesdtmsdr): the target is
++    // the user's own display, by its white and its gamma, with its gamut, its curve and its
++    // contrast recovery, in place of what a preset of the display says
++    if (DVBRIDGE::DtmToSdr())
++    {
++      mapping = dvbridge_sdr_mapping_custom(
++          settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRWHITE)
++              ? static_cast<float>(settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRWHITE))
++              : DVBRIDGE_SDR_WHITE,
++          settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRGAMMA)
++              ? static_cast<float>(settings->GetNumber(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRGAMMA))
++              : 1.8f,
++          known ? xy : nullptr);
++      if (settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRGAMUT))
++        switch (settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRGAMUT))
++        {
++          case 0: mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT2020; break;
++          case 2: mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT709; break;
++          default: mapping.gamut = DVBRIDGE_HDR10_GAMUT_P3_D65; break;
++        }
++      if (settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRCURVE))
++        mapping.curve = dvbridge_hdr10_curve_of_setting(
++            settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRCURVE));
++      mapping.dynamic_target = true;
++      mapping.contrast_recovery =
++          settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRRECOVERY)
++              ? settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRRECOVERY) / 100.0f
++              : 0.0f;
++    }
+   }
+-  else if (settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10MAP) &&
+-      settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10MAP) != 0 &&
+-      settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10PEAK) &&
+-      settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10GAMUT) &&
+-      settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10CURVE))
++  else if (DVBRIDGE::DtmToHdr() ||
++           (settings && settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10MAP) &&
++                settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10MAP) != 0 &&
++                settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10PEAK) &&
++                settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10GAMUT) &&
++                settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10CURVE)))
+   {
+     mapping.enabled = true;
+-    mapping.peak =
+-        static_cast<float>(settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10PEAK));
+-    switch (settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10GAMUT))
++    // Hades: frame-by-frame dynamic tone mapping to HDR (videoscreen.hadesdtmhdr): the target is
++    // the user's (its peak, its gamut, its curve and its contrast recovery), not the display's own
++    if (DVBRIDGE::DtmToHdr())
++    {
++      mapping.peak =
++          static_cast<float>(settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRPEAK));
++      switch (settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRGAMUT))
++      {
++        case 0: mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT2020; break;
++        default: mapping.gamut = DVBRIDGE_HDR10_GAMUT_P3_D65; break;
++      }
++      mapping.curve = dvbridge_hdr10_curve_of_setting(
++          settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRCURVE));
++      mapping.dynamic_target = true;
++      mapping.contrast_recovery =
++          settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRRECOVERY) / 100.0f;
++    }
++    else
+     {
+-      case 0: mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT2020; break;
+-      case 2: mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT709; break;
+-      default: mapping.gamut = DVBRIDGE_HDR10_GAMUT_P3_D65; break;
++      mapping.peak =
++          static_cast<float>(settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10PEAK));
++      switch (settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10GAMUT))
++      {
++        case 0: mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT2020; break;
++        case 2: mapping.gamut = DVBRIDGE_HDR10_GAMUT_BT709; break;
++        default: mapping.gamut = DVBRIDGE_HDR10_GAMUT_P3_D65; break;
++      }
++      mapping.curve = dvbridge_hdr10_curve_of_setting(
++          settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10CURVE));
+     }
+-    mapping.curve = dvbridge_hdr10_curve_of_setting(
+-        settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10CURVE));
+     // Hades: the black of the display (videoscreen.hadesdvhdr10black; 0: the black of the source kept, as
+     // before), within what the mapping takes (dvbridge_hdr10_mapping::black)
+     mapping.black = Hdr10MappingBlack(settings);
+--- a/xbmc/windowing/gbm/WinSystemGbm.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbm.cpp
+@@ -1657,6 +1657,12 @@
+ 
+ bool CWinSystemGbm::DVTurnedOff() const
+ {
++#ifdef HAVE_DVBRIDGE
++  // Hades: frame-by-frame dynamic tone mapping takes the output while one of its branches is on:
++  // native output is off, whatever its own setting says
++  if (DVBRIDGE::DtmTakesOutput())
++    return true;
++#endif
+   int off = m_dvTurnedOff;
+   if (off < 0)
+   {
+@@ -1817,6 +1823,11 @@
+ 
+ std::string CWinSystemGbm::NativeDVOutputReason() const
+ {
++#ifdef HAVE_DVBRIDGE
++  // Hades: not off by the user's setting: taken by frame-by-frame dynamic tone mapping
++  if (DVBRIDGE::DtmTakesOutput())
++    return "dynamic tone mapping";
++#endif
+   if (DVTurnedOff())
+     return "settings";
+   if (m_dvDisabled)
+@@ -1938,8 +1949,19 @@
+     m_dvTurnedOff = -1;
+     const bool now = DVTurnedOff();
+     if (now != before)
+-      CLog::Log(LOGINFO, "DVBridge: native Dolby Vision output is {} in the settings",
+-                now ? "turned off" : "turned on");
++    {
++      // Hades: the line says whether the user's setting did it, or frame-by-frame dynamic tone
++      // mapping taking the output
++#ifdef HAVE_DVBRIDGE
++      if (DVBRIDGE::DtmTakesOutput())
++        CLog::Log(LOGINFO,
++                  "DVBridge: native Dolby Vision output is taken by frame-by-frame dynamic tone "
++                  "mapping");
++      else
++#endif
++        CLog::Log(LOGINFO, "DVBridge: native Dolby Vision output is {} in the settings",
++                  now ? "turned off" : "turned on");
++    }
+   }
+   // Hades: and Dolby Vision through the converter of the board (and what the kernel says of the
+   // converter behind the port, read again with this video: CDetectedProperty)
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.cpp
+@@ -3134,7 +3134,15 @@
+ void CLinuxRendererGLES::CheckVideoParameters(int index)
+ {
+   const CPictureBuffer& buf = m_buffers[index];
++#ifdef HAVE_DVBRIDGE
++  // Hades: the curve of frame-by-frame dynamic tone mapping takes the place of the video's tone
++  // mapping method while one of its branches is on (read here, not written into the settings of
++  // the video: with it off, the choice of the video is the authority again)
++  const ETONEMAPMETHOD toneMapMethod = static_cast<ETONEMAPMETHOD>(
++      DVBRIDGE::ToneMapMethodOf(m_videoSettings.m_ToneMapMethod));
++#else
+   const ETONEMAPMETHOD& toneMapMethod = m_videoSettings.m_ToneMapMethod;
++#endif
+ 
+   if (buf.m_srcPrimaries != m_srcPrimaries)
+   {

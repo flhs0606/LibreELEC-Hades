@@ -1,0 +1,110 @@
+--- a/system/language-overrides/resource.language.zh_cn.po
++++ b/system/language-overrides/resource.language.zh_cn.po
+--- 
++++ 
+@@ -15,11 +15,11 @@
+ 
+ msgctxt "#41856"
+ msgid "Map every frame to SDR"
+-msgstr "逐帧映射至 SDR"
++msgstr "逐帧映射至SDR"
+ 
+ msgctxt "#41857"
+ msgid "The picture of every HDR video is measured frame by frame and mapped to the white, the gamma and the gamut chosen below, whatever the TV or projector takes. HDR videos then play with the lights of the room in mind instead of the mastering display's: on an SDR display, with HDR turned off, and on an HDR display by choice. While this is on, it takes the place of Dolby Vision output, HDR10 output and Kodi's own tone mapping."
+-msgstr "每段 HDR 视频的画面都会被逐帧测量，并按下方选定的白点、Gamma 和色域重新映射，无论电视机或投影仪接收的是什么。HDR 视频由此按房间光线而非制作监视器来呈现：SDR 显示器（关闭 HDR）与 HDR 显示器（按需开启）皆可。开启期间，它取代杜比视界输出、HDR10 输出和 Kodi 自身的色调映射。"
++msgstr "每段HDR视频的画面都会被逐帧测量，并按下方选定的白点、Gamma和色域重新映射，无论电视机或投影仪接收的是什么。HDR视频由此按房间光线而非制作监视器来呈现：SDR显示器（关闭HDR）与HDR显示器（按需开启）皆可。开启期间，它取代杜比视界输出、HDR10输出和Kodi自身的色调映射。"
+ 
+ msgctxt "#41858"
+ msgid "Target white"
+@@ -27,15 +27,15 @@
+ 
+ msgctxt "#41859"
+ msgid "The white that the mapped picture is made for, in cd/m². 500 suits a bright room; a dark one takes 100 to 200. Takes effect from the next video."
+-msgstr "映射画面的目标白点，单位 cd/m²。明亮的房间适合 500，昏暗的房间取 100 至 200。自下一部视频起生效。"
++msgstr "映射画面的目标白点，单位cd/m²。明亮的房间适合500，昏暗的房间取100至200。自下一部视频起生效。"
+ 
+ msgctxt "#41860"
+ msgid "Target gamma"
+-msgstr "目标 Gamma"
++msgstr "目标Gamma"
+ 
+ msgctxt "#41861"
+ msgid "The gamma of the mapped picture. 1.8 suits a bright room; a dark one takes 2.2 to 2.4. Takes effect from the next video."
+-msgstr "映射画面的 Gamma。明亮的房间适合 1.8，昏暗的房间取 2.2 至 2.4。自下一部视频起生效。"
++msgstr "映射画面的Gamma。明亮的房间适合1.8，昏暗的房间取2.2至2.4。自下一部视频起生效。"
+ 
+ msgctxt "#41862"
+ msgid "Target colour gamut"
+@@ -51,7 +51,7 @@
+ 
+ msgctxt "#41865"
+ msgid "The curve that maps the picture: BT.2390 as Dolby Vision maps it, BT.2390 with libplacebo's knee, or the spline of the ITU's reference display. Takes effect from the next video."
+-msgstr "映射所用的曲线：BT.2390（杜比视界的映射方式）、带 libplacebo 拐点的 BT.2390，或 ITU 基准显示器的样条曲线。自下一部视频起生效。"
++msgstr "映射所用的曲线：BT.2390（杜比视界的映射方式）、带libplacebo拐点的BT.2390，或ITU基准显示器的样条曲线。自下一部视频起生效。"
+ 
+ msgctxt "#41866"
+ msgid "Contrast recovery"
+@@ -59,15 +59,15 @@
+ 
+ msgctxt "#41867"
+ msgid "How much of the contrast that the frame-by-frame mapping takes from a dark scene is given back to it, in percent. 0 leaves the frame as the curve maps it; 20 keeps most of the life of a night scene. Takes effect from the next video."
+-msgstr "逐帧映射从暗场收走的对比度，按百分比归还多少给它。0 表示完全按曲线映射；20 能保住夜景大部分的生气。自下一部视频起生效。"
++msgstr "逐帧映射从暗场收走的对比度，按百分比归还多少给它。0表示完全按曲线映射；20能保住夜景大部分的生气。自下一部视频起生效。"
+ 
+ msgctxt "#41868"
+ msgid "Map every frame to HDR"
+-msgstr "逐帧映射至 HDR"
++msgstr "逐帧映射至HDR"
+ 
+ msgctxt "#41869"
+ msgid "The picture of every HDR video is measured frame by frame and mapped to the peak and the gamut chosen below: an HDR10 output whose picture follows what the video shows, frame by frame, where its own metadata say less. While this is on, it takes the place of Dolby Vision output, HDR10 output and Kodi's own tone mapping."
+-msgstr "每段 HDR 视频的画面都会被逐帧测量，并按下方选定的峰值和色域重新映射：得到一部画面随内容逐帧变化的 HDR10 输出，在其自身元数据说得较少之处补足。开启期间，它取代杜比视界输出、HDR10 输出和 Kodi 自身的色调映射。"
++msgstr "每段HDR视频的画面都会被逐帧测量，并按下方选定的峰值和色域重新映射：得到一部画面随内容逐帧变化的HDR10输出，在其自身元数据说得较少之处补足。开启期间，它取代杜比视界输出、HDR10输出和Kodi自身的色调映射。"
+ 
+ msgctxt "#41870"
+ msgid "Target display peak"
+@@ -75,7 +75,7 @@
+ 
+ msgctxt "#41871"
+ msgid "The peak that the mapped picture is made for, in cd/m², where the display's own peak is not taken: 800 suits a bright room. Takes effect from the next video."
+-msgstr "映射画面的目标峰值，单位 cd/m²，用于不采用显示器自身峰值之处：明亮的房间适合 800。自下一部视频起生效。"
++msgstr "映射画面的目标峰值，单位cd/m²，用于不采用显示器自身峰值之处：明亮的房间适合800。自下一部视频起生效。"
+ 
+ msgctxt "#41872"
+ msgid "Target colour gamut"
+@@ -91,7 +91,7 @@
+ 
+ msgctxt "#41875"
+ msgid "The curve that maps the picture: BT.2390 as Dolby Vision maps it, BT.2390 with libplacebo's knee, or the spline of the ITU's reference display. Takes effect from the next video."
+-msgstr "映射所用的曲线：BT.2390（杜比视界的映射方式）、带 libplacebo 拐点的 BT.2390，或 ITU 基准显示器的样条曲线。自下一部视频起生效。"
++msgstr "映射所用的曲线：BT.2390（杜比视界的映射方式）、带libplacebo拐点的BT.2390，或ITU基准显示器的样条曲线。自下一部视频起生效。"
+ 
+ msgctxt "#41876"
+ msgid "Contrast recovery"
+@@ -99,7 +99,7 @@
+ 
+ msgctxt "#41877"
+ msgid "How much of the contrast that the frame-by-frame mapping takes from a dark scene is given back to it, in percent. 0 leaves the frame as the curve maps it; 20 keeps most of the life of a night scene. Takes effect from the next video."
+-msgstr "逐帧映射从暗场收走的对比度，按百分比归还多少给它。0 表示完全按曲线映射；20 能保住夜景大部分的生气。自下一部视频起生效。"
++msgstr "逐帧映射从暗场收走的对比度，按百分比归还多少给它。0表示完全按曲线映射；20能保住夜景大部分的生气。自下一部视频起生效。"
+ 
+ msgctxt "#41878"
+ msgid "Picture quality mode"
+@@ -107,7 +107,7 @@
+ 
+ msgctxt "#41879"
+ msgid "How much of the graphics card's power is spent on the picture: Standard keeps a small card in step with the film, High spends more of a faster one, and Ultra takes a card of its own. Standard is what Hades plays without this setting."
+-msgstr "显卡的算力有多少用在画面上：标准让小显卡跟得上影片，高让更快的显卡多投入一些，极致则需要一块独当一面的显卡。标准就是 Hades 不动这项设置时的播放方式。"
++msgstr "显卡的算力有多少用在画面上：标准让小显卡跟得上影片，高让更快的显卡多投入一些，极致则需要一块独当一面的显卡。标准就是Hades不动这项设置时的播放方式。"
+ 
+ msgctxt "#41880"
+ msgid "Standard"
+@@ -127,7 +127,7 @@
+ 
+ msgctxt "#41884"
+ msgid "The mapping is done as the smallest of cards keeps up with it, in two ways: without the enhancement layer, its residual is left undecoded and the picture takes the resolution of its base layer, the colour of Dolby Vision kept; with the enhancement layer kept, its residual is reconstructed and the picture is drawn at a coarser fidelity step-down. Both ways compose with libplacebo's reshaping and measure every other picture. It does nothing while the frame-by-frame mapping is off; it takes effect from the next video."
+-msgstr "逐帧映射按小显卡也跟得上的方式做，分两种：无增强层时其残差不解码（画面取其基层的分辨率，杜比视界的色彩保留）；保留增强层时其残差照常重建，画面以更粗的保真降级绘制。两种方式都用 libplacebo 的重构合成，画面隔帧测量。仅在逐帧映射开启期间生效；自下一部视频起生效。"
++msgstr "逐帧映射按小显卡也跟得上的方式做，分两种：无增强层时其残差不解码（画面取其基层的分辨率，杜比视界的色彩保留）；保留增强层时其残差照常重建，画面以更粗的保真降级绘制。两种方式都用libplacebo的重构合成，画面隔帧测量。仅在逐帧映射开启期间生效；自下一部视频起生效。"
+ 
+ msgctxt "#41885"
+ msgid "Off"

@@ -1,0 +1,353 @@
+--- a/xbmc/settings/Settings.cpp
++++ b/xbmc/settings/Settings.cpp
+@@ -113,6 +113,92 @@
+   return changed;
+ }
+ 
++// Hades: the value that guisettings.xml has for a setting that this build no longer defines (an
++// earlier build saved it): read once, when the settings are loaded, to take the choice over
++std::string OldSettingXmlValue(const TiXmlElement* root, const char* id)
++{
++  if (!root)
++    return "";
++  for (const auto* element = root->FirstChildElement("setting"); element;
++       element = element->NextSiblingElement("setting"))
++  {
++    const char* const saved = element->Attribute("id");
++    if (saved && StringUtils::EqualsNoCase(saved, id))
++    {
++      const char* const value = element->GetText();
++      return value ? value : "";
++    }
++  }
++  return "";
++}
++
++// Hades: what a user chose in an earlier build is taken over by the settings of frame-by-frame
++// dynamic tone mapping, once, when the settings are loaded: the projector's way of mapping to SDR
++// (videoscreen.hadesdvsdrtarget 2 or 3) turns the SDR branch on and carries its white and its
++// gamma; three settings that only an earlier build defined (its gamut, its curve and its contrast
++// recovery) are read from the file as it was saved; and the curve of the HDR10 adaptation is
++// carried to the curve of the HDR branch. A setting is only written while it is at its default:
++// what was chosen in this build stays, and what is taken over is taken over only once.
++bool MigrateDtmBranches(CSettingsManager& manager, const TiXmlElement* root)
++{
++  bool changed = false;
++  const auto sdr =
++      std::dynamic_pointer_cast<CSettingBool>(manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDR));
++  const auto target =
++      std::dynamic_pointer_cast<CSettingInt>(manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVSDRTARGET));
++  if (sdr && target && !sdr->GetValue() &&
++      (target->GetValue() == 2 || target->GetValue() == 3))
++  {
++    const int oldTarget = target->GetValue();
++    if (sdr->SetValue(true))
++      changed = true;
++    const auto oldWhite =
++        std::dynamic_pointer_cast<CSettingInt>(manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVSDRWHITE));
++    const auto white =
++        std::dynamic_pointer_cast<CSettingInt>(manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRWHITE));
++    if (oldWhite && white && white->GetValue() == white->GetDefault() &&
++        oldWhite->GetValue() != white->GetDefault() && white->SetValue(oldWhite->GetValue()))
++      changed = true;
++    const auto oldGamma =
++        std::dynamic_pointer_cast<CSettingNumber>(manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVSDRGAMMA));
++    const auto gamma =
++        std::dynamic_pointer_cast<CSettingNumber>(manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRGAMMA));
++    if (oldGamma && gamma && gamma->GetValue() == gamma->GetDefault() &&
++        oldGamma->GetValue() != gamma->GetDefault() && gamma->SetValue(oldGamma->GetValue()))
++      changed = true;
++    for (const auto& carry :
++         {std::pair<const char*, const char*>{"videoscreen.hadesdvsdrgamut",
++                                              CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRGAMUT},
++          {"videoscreen.hadesdvsdrcurve", CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRCURVE},
++          {"videoscreen.hadesdtmrecovery", CSettings::SETTING_VIDEOSCREEN_HADESDTMSDRRECOVERY}})
++    {
++      const std::string value = OldSettingXmlValue(root, carry.first);
++      if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos)
++        continue;
++      const auto to = std::dynamic_pointer_cast<CSettingInt>(manager.GetSetting(carry.second));
++      if (to && to->GetValue() == to->GetDefault() && std::stoi(value) != to->GetDefault() &&
++          to->SetValue(std::stoi(value)))
++        changed = true;
++    }
++    // (the choice of the earlier build is spent, whatever the branch is set to later: it is not
++    // taken over again at the next start)
++    if (target->GetValue() != 0 && target->SetValue(0))
++      changed = true;
++    CLog::Log(LOGINFO,
++              "CSettings: \"{}\" takes over \"{}\" ({}), which an earlier build saved",
++              CSettings::SETTING_VIDEOSCREEN_HADESDTMSDR, CSettings::SETTING_VIDEOSCREEN_HADESDVSDRTARGET,
++              oldTarget);
++  }
++  const auto oldCurve =
++      std::dynamic_pointer_cast<CSettingInt>(manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVHDR10CURVE));
++  const auto curve =
++      std::dynamic_pointer_cast<CSettingInt>(manager.GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDTMHDRCURVE));
++  if (oldCurve && curve && curve->GetValue() == curve->GetDefault() &&
++      oldCurve->GetValue() != curve->GetDefault() && curve->SetValue(oldCurve->GetValue()))
++    changed = true;
++  return changed;
++}
++
+ // ... and while Kodi runs, a boolean follows its new setting
+ class CDVEngineSettingsSync : public ISettingCallback
+ {
+@@ -135,6 +221,67 @@
+   }
+ };
+ CDVEngineSettingsSync g_dvEngineSettingsSync;
++
++// Hades: the quality preset (videoscreen.hadesqualitypreset) writes what it stands for through to
++// the four settings of the engine that hold it; a manual change of one of them is only said in the
++// log: the last one written wins
++class CQualityPresetSync : public ISettingCallback
++{
++public:
++  void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override
++  {
++    if (!setting)
++      return;
++    const auto component = CServiceBroker::GetSettingsComponent();
++    const auto settings = component ? component->GetSettings() : nullptr;
++    if (!settings)
++      return;
++    if (setting->GetId() == CSettings::SETTING_VIDEOSCREEN_HADESQUALITYPRESET)
++    {
++      const auto preset = std::dynamic_pointer_cast<const CSettingInt>(setting);
++      if (preset)
++        WriteThrough(*settings, preset->GetValue());
++      return;
++    }
++    if (m_writing)
++      return;
++    for (const char* const id :
++         {CSettings::SETTING_VIDEOSCREEN_HADESDVASHDR10FEL,
++          CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER,
++          CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE,
++          CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE})
++      if (setting->GetId() == id)
++      {
++        CLog::Log(LOGINFO, "quality preset: {} overridden by manual change of {}",
++                  settings->GetInt(CSettings::SETTING_VIDEOSCREEN_HADESQUALITYPRESET), id);
++        break;
++      }
++  }
++
++private:
++  void WriteThrough(CSettings& settings, int preset)
++  {
++    // (the two higher presets turn the FEL reconstruction and the finer gamut table on, and the
++    // composition stays with ETSI GS CCM 001; the highest locks the fidelity, so that no picture
++    // is drawn with less than the film has)
++    const bool high = preset >= 1;
++    m_writing = true;
++    settings.SetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVASHDR10FEL, high);
++    settings.SetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER, 0);
++    settings.SetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE, high);
++    settings.SetInt(CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE, preset == 2 ? 1 : 0);
++    m_writing = false;
++    CLog::Log(LOGINFO, "quality preset: {} (FEL reconstruction {}, gamut table {}, fidelity {})",
++              preset == 2   ? "ultra"
++              : preset == 1 ? "high"
++                            : "standard",
++              high ? "on" : "off", high ? "fine" : "coarse",
++              preset == 2 ? "locked" : "automatic");
++  }
++
++  bool m_writing = false;
++};
++CQualityPresetSync g_qualityPresetSync;
+ } // namespace
+ #endif
+ 
+@@ -296,6 +443,8 @@
+ #ifdef HAVE_DVBRIDGE
+   if (MigrateDVEngine(*GetSettingsManager()))
+     updated = true;
++  if (MigrateDtmBranches(*GetSettingsManager(), root))
++    updated = true;
+ #endif
+ 
+   return Load(static_cast<const TiXmlNode*>(root));
+@@ -742,6 +891,13 @@
+   GetSettingsManager()->RegisterCallback(&g_dvEngineSettingsSync,
+                                          {CSettings::SETTING_VIDEOSCREEN_HADESDVAHEADMODE,
+                                           CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE});
++  GetSettingsManager()->RegisterCallback(
++      &g_qualityPresetSync,
++      {CSettings::SETTING_VIDEOSCREEN_HADESQUALITYPRESET,
++       CSettings::SETTING_VIDEOSCREEN_HADESDVASHDR10FEL,
++       CSettings::SETTING_VIDEOSCREEN_HADESDVCOMPOSER,
++       CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE,
++       CSettings::SETTING_VIDEOSCREEN_HADESDVSTEPMODE});
+ #endif
+ }
+ 
+@@ -759,6 +915,7 @@
+ #endif
+ #ifdef HAVE_DVBRIDGE
+   GetSettingsManager()->UnregisterCallback(&g_dvEngineSettingsSync);
++  GetSettingsManager()->UnregisterCallback(&g_qualityPresetSync);
+ #endif
+ }
+ 
+--- a/xbmc/settings/AdvancedSettings.cpp
++++ b/xbmc/settings/AdvancedSettings.cpp
+@@ -224,7 +224,7 @@
+   m_videoDVPassTimes = false;
+   m_videoDVEndOfStream = false;
+   m_videoDVStartSignal = true;
+-  m_videoDVMmrTable = false;
++  m_videoDVMmrTable = true;
+   m_videoDVComputeRows = true;
+   m_videoDVCm40Default = false;
+   m_videoDVFromHdr10WhenNeeded = true;
+--- a/xbmc/settings/AdvancedSettings.h
++++ b/xbmc/settings/AdvancedSettings.h
+@@ -246,8 +246,9 @@
+     //! the change wait for the first frame of the video, as before (a comparison)
+     bool m_videoDVStartSignal;
+     //! Hades: the composer of ETSI GS CCM 001 maps the chroma by MMR with a table for each of its three
+-    //! samples (video/dvmmrtable; dvbridge_render_use_mmr_table()): the same pictures, bit for bit, to
+-    //! measure on a GPU whether it is faster. Off, the default
++    //! samples (video/dvmmrtable; dvbridge_render_use_mmr_table()): the same pictures, bit for bit,
++    //! and less work for the GPU (a quarter less on the chroma pass of an FEL video, measured on an
++    //! N100). On, the default; off only where advancedsettings.xml says so
+     bool m_videoDVMmrTable;
+     //! Hades: the rows of 4:2:2 chroma of the source transport made by a compute shader that reads each
+     //! row of 4:2:0 once for a tile of 8 of them (video/dvcomputerows; dvbridge_render_use_compute_rows():
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+@@ -1989,12 +1989,13 @@
+                                                             : DVBRIDGE_GAMUT_TABLE_STANDARD);
+ }
+ 
+-// Hades: the composer maps the chroma by MMR with a table for each of its three samples, where
+-// advancedsettings.xml asks for it (<video><dvmmrtable>true</dvmmrtable></video>,
+-// dvbridge_render_use_mmr_table()): the same pictures, bit for bit, to measure on a GPU whether it is
+-// faster. With dvpasstimes the composer's chroma pass is timed apart ("DV composer: chroma (CCM 001
++// Hades: the composer maps the chroma by MMR with a table for each of its three samples
++// (dvbridge_render_use_mmr_table()): the same pictures, bit for bit, and less work for the GPU
++// (a quarter less on the chroma pass of an FEL video, measured on an N100). On, the default; off
++// only where advancedsettings.xml says so (<video><dvmmrtable>false</dvmmrtable></video>). With
++// dvpasstimes the composer's chroma pass is timed apart ("DV composer: chroma (CCM 001
+ // 5.4, MMR table)"); with dvverify the frames are checked against the composer that computes every
+-// term (the reference of the check never takes the table). Off by default.
++// term (the reference of the check never takes the table).
+ void CDVBridgeGLES::UseMmrTableSetting()
+ {
+   const auto settings = CServiceBroker::GetSettingsComponent();
+@@ -2002,8 +2003,8 @@
+     return;
+   dvbridge_render_use_mmr_table(m_renderer, true);
+   CLog::Log(LOGINFO,
+-            "DVBridge: the composer maps the chroma by MMR with a table for each of its samples, as "
+-            "advancedsettings.xml asks (dvmmrtable): the same pictures{}",
++            "DVBridge: the composer maps the chroma by MMR with a table for each of its samples "
++            "(dvmmrtable): the same pictures{}",
+             dvbridge_render_mmr_table(m_renderer)
+                 ? "; with dvpasstimes its chroma pass is timed apart (\"MMR table\")"
+                 : ", but this libplacebo has no such table: every term is computed");
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+@@ -3927,8 +3927,8 @@
+         </constraints>
+         <control type="spinner" format="string" />
+       </setting>
+-      <!-- Hades: the display that HDR mapped to SDR is made for (Dolby Vision rebuilt, and HDR10, HDR10+ and HLG
+-           mapped by the bridge): the white it shows and its gamma -->
++      <!-- Hades: taken over by videoscreen.hadesdtmsdr; kept, hidden, as the choice of an earlier
++           build is taken over once, and the engine still reads it -->
+       <setting id="videoscreen.hadesdvsdrtarget" type="integer" label="41130" help="41131">
+         <requirement>
+           <and>
+@@ -3936,6 +3936,7 @@
+             <condition>HAS_GLES</condition>
+           </and>
+         </requirement>
++        <visible>false</visible>
+         <level>2</level>
+         <default>0</default>
+         <constraints>
+@@ -3948,8 +3949,8 @@
+         </constraints>
+         <control type="spinner" format="string" />
+       </setting>
+-      <!-- Hades: the white and the gamma of a custom SDR display (videoscreen.hadesdvsdrtarget 3); 203 and 2.4 are
+-           the reference, the same picture -->
++      <!-- Hades: taken over by videoscreen.hadesdtmsdrwhite and videoscreen.hadesdtmsdrgamma; kept,
++           hidden, as the choice of an earlier build is taken over once -->
+       <setting id="videoscreen.hadesdvsdrwhite" type="integer" parent="videoscreen.hadesdvsdrtarget" label="41136" help="41137">
+         <requirement>
+           <and>
+@@ -3960,6 +3961,7 @@
+         <dependencies>
+           <dependency type="enable" setting="videoscreen.hadesdvsdrtarget" operator="is">3</dependency>
+         </dependencies>
++        <visible>false</visible>
+         <level>3</level>
+         <default>203</default>
+         <constraints>
+@@ -3981,6 +3983,7 @@
+         <dependencies>
+           <dependency type="enable" setting="videoscreen.hadesdvsdrtarget" operator="is">3</dependency>
+         </dependencies>
++        <visible>false</visible>
+         <level>3</level>
+         <default>2.4</default>
+         <constraints>
+@@ -4091,8 +4094,7 @@
+         <default>false</default>
+         <control type="toggle" />
+       </setting>
+-      <!-- Hades: HDR10 and HDR10+ adapted to the display by the player (a projector): off by default,
+-           the display maps the video as it was mastered -->
++      <!-- Hades: taken over by videoscreen.hadesdtmhdr; kept, hidden, as the engine still reads it -->
+       <setting id="videoscreen.hadeshdr10adapt" type="integer" label="40984" help="40985">
+         <requirement>
+           <and>
+@@ -4103,6 +4105,7 @@
+         <dependencies>
+           <dependency type="visible" on="property" name="ishdrdisplay"/>
+         </dependencies>
++        <visible>false</visible>
+         <level>3</level>
+         <default>0</default>
+         <constraints>
+@@ -4114,9 +4117,7 @@
+         </constraints>
+         <control type="spinner" format="string" />
+       </setting>
+-      <!-- Hades: HDR videos sent as SDR to a display that takes HDR, by choice (a TV whose HLG mode is worse than
+-           its SDR one, a projector): never by default; greyed out while Kodi's HDR output is off, which sends
+-           every one as SDR -->
++      <!-- Hades: taken over by videoscreen.hadesdtmsdr; kept, hidden, as the engine still reads it -->
+       <setting id="videoscreen.hadeshdrassdr" type="integer" label="41110" help="41111">
+         <requirement>
+           <and>
+@@ -4128,6 +4129,7 @@
+           <dependency type="visible" on="property" name="ishdrdisplay"/>
+           <dependency type="enable" setting="winsystem.ishdrdisplay">true</dependency>
+         </dependencies>
++        <visible>false</visible>
+         <level>3</level>
+         <default>0</default>
+         <constraints>
+@@ -4241,6 +4243,8 @@
+         </constraints>
+         <control type="spinner" format="string" />
+       </setting>
++      <!-- Hades: taken over by videoscreen.hadesdtmhdrcurve; kept, hidden, as the choice of an
++           earlier build is taken over once, and the engine still reads it -->
+       <setting id="videoscreen.hadesdvhdr10curve" type="integer" parent="videoscreen.hadesdvhdr10map" label="39844" help="39845">
+         <requirement>
+           <and>
+@@ -4252,6 +4256,7 @@
+           <dependency type="visible" on="property" name="ishdrdisplay"/>
+           <dependency type="enable" setting="videoscreen.hadesdvhdr10map" operator="!is">0</dependency>
+         </dependencies>
++        <visible>false</visible>
+         <level>3</level>
+         <default>1</default> <!-- BT.2390 -->
+         <constraints>
