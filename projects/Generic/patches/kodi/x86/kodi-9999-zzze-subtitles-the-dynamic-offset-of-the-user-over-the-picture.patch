@@ -1,0 +1,689 @@
+diff --git a/addons/resource.language.en_gb/resources/strings.po b/addons/resource.language.en_gb/resources/strings.po
+index b3ed82d..4a98ee7 100644
+--- a/addons/resource.language.en_gb/resources/strings.po
++++ b/addons/resource.language.en_gb/resources/strings.po
+@@ -26313,6 +26313,54 @@ msgctxt "#39999"
+ msgid "The display takes only Dolby Vision Low-Latency: turn off the game settings of the TV input for native Dolby Vision."
+ msgstr ""
+ 
++#. Label of setting with label #39186 "Styles for text based subtitles"
++#: system/settings/settings.xml
++msgctxt "#60500"
++msgid "Enable local subtitle movement"
++msgstr ""
++
++#. Help text for setting "Enable local subtitle movement" of label #60500
++#: system/settings/settings.xml
++msgctxt "#60501"
++msgid "When enabled, only subtitles in the lower portion of the screen will be moved. When disabled, all subtitles on the screen will be moved together."
++msgstr ""
++
++#. Label of setting "subtitles.positionpercentage"
++#: system/settings/settings.xml
++msgctxt "#60502"
++msgid "Subtitle position from top"
++msgstr ""
++
++#. Help text for setting "Subtitle position from top" of label #60502
++#: system/settings/settings.xml
++msgctxt "#60503"
++msgid "Defines the threshold percentage from the top of screen below which subtitles are affected by local movement."
++msgstr ""
++
++#. Label of setting "subtitles.rememberoffset"
++#: system/settings/settings.xml
++msgctxt "#60504"
++msgid "Remember subtitle offset"
++msgstr ""
++
++#. Help text for setting "Remember subtitle offset" of label #60504
++#: system/settings/settings.xml
++msgctxt "#60505"
++msgid "When enabled, the position of subtitles moved during playback is saved and restored on next playback."
++msgstr ""
++
++#. Label of setting "subtitles.subtitleoffset"
++#: system/settings/settings.xml
++msgctxt "#60506"
++msgid "Subtitle offset (remembered)"
++msgstr ""
++
++#. Help text for setting "Subtitle offset (remembered)" of label #60506
++#: system/settings/settings.xml
++msgctxt "#60507"
++msgid "Offset from default position, in percentage of screen height. Negative moves up, positive moves down."
++msgstr ""
++
+ # 40000 to 40800 are reserved for Video Versions feature
+ 
+ #. Generic video versions label (plural)
+diff --git a/system/settings/settings.xml b/system/settings/settings.xml
+index 3c6284c..3f74edb 100644
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+@@ -761,6 +761,46 @@
+           </constraints>
+           <control type="list" format="string" />
+         </setting>
++        <setting id="subtitles.localmovement" type="boolean" label="60500" help="60501">
++          <level>2</level>
++          <default>true</default>
++          <control type="toggle" />
++        </setting>
++        <setting id="subtitles.positionpercentage" parent="subtitles.localmovement" type="integer" label="60502" help="60503">
++          <level>2</level>
++          <default>80</default>
++          <constraints>
++            <minimum>10</minimum>
++            <step>1</step>
++            <maximum>90</maximum>
++          </constraints>
++          <dependencies>
++            <dependency type="visible" setting="subtitles.localmovement" operator="is">true</dependency>
++          </dependencies>
++          <control type="slider" format="percentage">
++            <format>{:d} %</format>
++          </control>
++        </setting>
++        <setting id="subtitles.rememberoffset" type="boolean" label="60504" help="60505">
++          <level>2</level>
++          <default>false</default>
++          <control type="toggle" />
++        </setting>
++        <setting id="subtitles.subtitleoffset" type="number" parent="subtitles.rememberoffset" label="60506" help="60507">
++          <level>2</level>
++          <default>0.0</default>
++          <constraints>
++            <minimum>-100.0</minimum>
++            <step>0.5</step>
++            <maximum>100.0</maximum>
++          </constraints>
++          <dependencies>
++            <dependency type="visible" setting="subtitles.rememberoffset" operator="is">true</dependency>
++          </dependencies>
++          <control type="slider" format="percentage">
++            <format>{:+.1f} %</format>
++          </control>
++        </setting>
+         <setting id="subtitles.fontname" type="string" label="14089" help="36185">
+           <level>1</level>
+           <default>DEFAULT</default>
+diff --git a/xbmc/application/ApplicationPlayer.cpp b/xbmc/application/ApplicationPlayer.cpp
+index ddd9ded..7b936c6 100644
+--- a/xbmc/application/ApplicationPlayer.cpp
++++ b/xbmc/application/ApplicationPlayer.cpp
+@@ -753,6 +753,23 @@ void CApplicationPlayer::SetSubtitleVerticalPosition(int value, bool save)
+   }
+ }
+ 
++void CApplicationPlayer::SetDynamicSubtitleOffset(float value)
++{
++  std::shared_ptr<IPlayer> player = GetInternal();
++  if (player)
++  {
++    player->SetDynamicSubtitleOffset(value);
++  }
++}
++
++float CApplicationPlayer::AdjustDynamicSubtitleOffset(float delta)
++{
++  std::shared_ptr<IPlayer> player = GetInternal();
++  if (player)
++    return player->AdjustDynamicSubtitleOffset(delta);
++  return 0.0f;
++}
++
+ void CApplicationPlayer::SetTime(int64_t time)
+ {
+   std::shared_ptr<IPlayer> player = GetInternal();
+diff --git a/xbmc/application/ApplicationPlayer.h b/xbmc/application/ApplicationPlayer.h
+index bc386c4..db31434 100644
+--- a/xbmc/application/ApplicationPlayer.h
++++ b/xbmc/application/ApplicationPlayer.h
+@@ -168,6 +168,19 @@ public:
+    */
+   void SetSubtitleVerticalPosition(const int value, bool save);
+ 
++  /*!
++   * \brief Set the dynamic subtitle offset,
++   * in percentage of screen height (-100 ~ 100, negative = up, positive = down)
++   * \param value The offset percentage
++   */
++  void SetDynamicSubtitleOffset(const float value);
++
++  /*!
++   * \brief Adjust the dynamic subtitle offset by \p delta, clamped to [-100, 100].
++   *        See IPlayer::AdjustDynamicSubtitleOffset.
++   */
++  float AdjustDynamicSubtitleOffset(float delta);
++
+   void SetTime(int64_t time);
+   void SetTotalTime(int64_t time);
+   void SetVideoStream(int iStream);
+diff --git a/xbmc/cores/IPlayer.h b/xbmc/cores/IPlayer.h
+index 19b5551..3860f79 100644
+--- a/xbmc/cores/IPlayer.h
++++ b/xbmc/cores/IPlayer.h
+@@ -142,6 +142,22 @@ public:
+    */
+   virtual void SetSubtitleVerticalPosition(int value, bool save) {}
+ 
++  /*!
++   * \brief Set the dynamic subtitle offset,
++   * in percentage of screen height (-100 ~ 100, negative = up, positive = down)
++   * \param value The offset percentage
++   */
++  virtual void SetDynamicSubtitleOffset(float value) {}
++
++  /*!
++   * \brief Adjust the dynamic subtitle offset by \p delta, clamped to [-100, 100].
++   *        Reads, clamps and stores the value; callers don't need to fetch
++   *        the current value and write it back.
++   * \param delta The offset change in percentage of screen height
++   * \return The clamped offset value after adjustment
++   */
++  virtual float AdjustDynamicSubtitleOffset(float delta) { return 0.0f; }
++
+   /** \brief Adds the subtitle(s) provided by the given file to the available player streams
+   *          and actives the first of the added stream(s). E.g., vob subs can contain multiple streams.
+   *   \param[in] strSubPath The full path of the subtitle file.
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+index b8f1f04..cbc6226 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+@@ -5359,6 +5359,16 @@ void CVideoPlayer::SetSubtitleVerticalPosition(int value, bool save)
+   m_renderManager.SetSubtitleVerticalPosition(value, save);
+ }
+ 
++void CVideoPlayer::SetDynamicSubtitleOffset(float value)
++{
++  m_renderManager.SetDynamicSubtitleOffset(value);
++}
++
++float CVideoPlayer::AdjustDynamicSubtitleOffset(float delta)
++{
++  return m_renderManager.AdjustDynamicSubtitleOffset(delta);
++}
++
+ std::shared_ptr<TextCacheStruct_t> CVideoPlayer::GetTeletextCache()
+ {
+   if (m_CurrentTeletext.id < 0)
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.h b/xbmc/cores/VideoPlayer/VideoPlayer.h
+index 78af321..dae058d 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.h
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.h
+@@ -343,6 +343,10 @@ public:
+    */
+   void SetSubtitleVerticalPosition(const int value, bool save) override;
+ 
++  void SetDynamicSubtitleOffset(const float value) override;
++
++  float AdjustDynamicSubtitleOffset(float delta) override;
++
+   void AddSubtitle(const std::string& strSubPath) override;
+ 
+   int GetAudioStreamCount() const override;
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.cpp
+index c2fd0f1..75dd6d2 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.cpp
+@@ -23,6 +23,7 @@
+ #include "settings/DisplaySettings.h"
+ #include "settings/Settings.h"
+ #include "settings/SettingsComponent.h"
++#include "settings/SubtitlesSettings.h"
+ #include "windowing/GraphicContext.h"
+ #include "windowing/WinSystem.h"
+ 
+@@ -249,6 +250,13 @@ void CRenderer::Reset()
+   m_bitmapSubtitleStream = 0;
+   m_subtitlePosition = 0;
+   m_subtitlePosResInfo = -1;
++  // Inject the remembered offset at playback (re)start: Reset() runs after
++  // Configure() and is the last write before the next render.
++  const auto subSettings{CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings()};
++  const bool rememberEnabled = subSettings->IsRememberOffsetEnabled();
++  m_subtitleDynamicOffset.store(rememberEnabled ? subSettings->GetRememberedOffset() : 0.0f,
++                                std::memory_order_relaxed);
++  m_wasRememberOffsetEnabled = rememberEnabled;
+ }
+ 
+ void CRenderer::Release(int idx)
+@@ -453,6 +461,23 @@ void CRenderer::GetRenderState(COverlay* o, SRenderState& state) const
+   }
+ 
+   state.x += SubtitleDepth(*o);
++
++  // Classify non-ASS subtitles (image/SPU) by final screen y position.
++  // ASS subtitles are classified in ConvertLibass from rOpts.position.
++  const auto subSettings{CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings()};
++  const bool localMovement = subSettings->IsLocalMovementEnabled();
++  const float posPct = subSettings->GetPositionPercentage();
++
++  if (o->m_align != COverlay::ALIGN_SCREEN)
++  {
++    const float dynamicThreshold = m_rv.y1 + m_rv.Height() * (posPct / 100.0f);
++    o->m_isDynamic = (state.y >= dynamicThreshold);
++  }
++
++  // Apply the dynamic offset (% of view height). With local movement only
++  // subtitles classified as dynamic are moved, otherwise all move together.
++  if (!localMovement || o->m_isDynamic)
++    state.y += m_rv.Height() * m_subtitleDynamicOffset.load(std::memory_order_relaxed) / 100.0f;
+ }
+ 
+ float CRenderer::SubtitleDepth(const COverlay& o) const
+@@ -678,6 +703,22 @@ void CRenderer::SetStereoMode(const std::string &stereomode)
+   m_stereomode = stereomode;
+ }
+ 
++void CRenderer::SetDynamicSubtitleOffset(const float value)
++{
++  m_subtitleDynamicOffset.store(value, std::memory_order_relaxed);
++}
++
++float CRenderer::AdjustDynamicSubtitleOffset(float delta)
++{
++  float next = m_subtitleDynamicOffset.load(std::memory_order_relaxed) + delta;
++  if (next < -100.0f)
++    next = -100.0f;
++  else if (next > 100.0f)
++    next = 100.0f;
++  m_subtitleDynamicOffset.store(next, std::memory_order_relaxed);
++  return next;
++}
++
+ void CRenderer::SetSubtitleVerticalPosition(const int value, bool save)
+ {
+   std::unique_lock lock(m_section);
+@@ -848,6 +889,9 @@ void CRenderer::PrepareOverlays(int idx)
+     const SUBTITLES::STYLE::renderOpts rOpts{GetRenderOptions(ovAss, *m_overlayStyle, resolution)};
+     e.renderedFrameWidth = rOpts.frameWidth;
+     e.renderedFrameHeight = rOpts.frameHeight;
++    // Cache the line position for the dynamic/static classification done in
++    // ConvertLibass (rOpts is not in scope there).
++    e.renderedPosition = rOpts.position;
+ 
+     // Pull the libass output for this PTS. Cached on the SElement until
+     // ConvertLibass consumes it later in this frame's GUI walk.
+@@ -899,6 +943,9 @@ std::shared_ptr<COverlay> CRenderer::ConvertLibass(SElement& e)
+   std::shared_ptr<COverlay> overlay =
+       COverlay::Create(e.renderedImages, e.renderedFrameWidth, e.renderedFrameHeight);
+ 
++  // Classify ASS/libass subtitles by line position (0 = bottom, 100 = top).
++  overlay->m_isDynamic = (e.renderedPosition < 20.0f);
++
+   m_textureCache[m_textureid] = overlay;
+   o.m_textureid = m_textureid;
+   m_textureid++;
+@@ -978,6 +1025,13 @@ void CRenderer::Notify(const Observable& obs, const ObservableMessage msg)
+     case ObservableMessageSettingsChanged:
+     {
+       m_isSettingsChanged = true;
++      // Zero the live offset only on the remember-offset off-transition;
++      // unrelated subtitle setting changes must not disturb an in-session offset.
++      const auto subSettings{CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings()};
++      const bool rememberEnabled = subSettings->IsRememberOffsetEnabled();
++      if (m_wasRememberOffsetEnabled && !rememberEnabled)
++        m_subtitleDynamicOffset.store(0.0f, std::memory_order_relaxed);
++      m_wasRememberOffsetEnabled = rememberEnabled;
+       break;
+     }
+     case ObservableMessagePositionChanged:
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.h b/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.h
+index a55d3f0..3d4416e 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.h
+@@ -111,6 +111,8 @@ namespace OVERLAY {
+     unsigned int m_subtitleStream{0};
+     SContentInset m_contentInset;
+ 
++    bool m_isDynamic{false}; // true if subtitle can be moved up/down (dynamic), false if fixed (static)
++
+   protected:
+     /*!
+      * \brief Given the resolution ratio determines if it is a 4/3 resolution
+@@ -211,6 +213,19 @@ namespace OVERLAY {
+      */
+     void SetSubtitleVerticalPosition(const int value, bool save);
+ 
++    /*!
++     * \brief Set the dynamic subtitle offset,
++     * in percentage of screen height (-100 ~ 100, negative = up, positive = down)
++     * \param value The offset percentage
++     */
++    void SetDynamicSubtitleOffset(const float value);
++
++    /*!
++     * \brief Adjust the dynamic subtitle offset by \p delta (clamped to [-100, 100]).
++     *        Returns the clamped offset after adjustment.
++     */
++    float AdjustDynamicSubtitleOffset(float delta);
++
+   protected:
+     /*!
+      * \brief Reset the subtitle position to default value
+@@ -233,6 +248,10 @@ namespace OVERLAY {
+       ASS_Image* renderedImages{nullptr};
+       float renderedFrameWidth{0.0f};
+       float renderedFrameHeight{0.0f};
++      // libass line position for this frame (0 = bottom, 100 = top), cached
++      // alongside the rendered images; read by ConvertLibass to classify the
++      // overlay as dynamic or static (rOpts is not in scope there).
++      float renderedPosition{0.0f};
+     };
+ 
+     /*! \brief One overlay resolved to the screen geometry it will be drawn with */
+@@ -357,6 +376,9 @@ namespace OVERLAY {
+     int m_bitmapBrightnessPerc{100};
+     int m_bitmapSaturationPerc{100};
+ 
++    mutable std::atomic<float> m_subtitleDynamicOffset{0.0f}; // dynamic offset, % of view height
++    // Previous remember-offset toggle state, used to detect the off-transition in Notify()
++    bool m_wasRememberOffsetEnabled{false};
+     std::shared_ptr<struct KODI::SUBTITLES::STYLE::style> m_overlayStyle;
+     std::atomic<bool> m_isSettingsChanged{false};
+     // Set by OnViewChange; the subtitle baseline must then be recomputed
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
+index a143283..ae5d158 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
+@@ -1209,6 +1209,16 @@ void CRenderManager::SetSubtitleVerticalPosition(int value, bool save)
+   m_overlays.SetSubtitleVerticalPosition(value, save);
+ }
+ 
++void CRenderManager::SetDynamicSubtitleOffset(const float value)
++{
++  m_overlays.SetDynamicSubtitleOffset(value);
++}
++
++float CRenderManager::AdjustDynamicSubtitleOffset(float delta)
++{
++  return m_overlays.AdjustDynamicSubtitleOffset(delta);
++}
++
+ bool CRenderManager::AddVideoPicture(const VideoPicture& picture, volatile std::atomic_bool& bStop, EINTERLACEMETHOD deintMethod, bool wait)
+ {
+   std::unique_lock lock(m_presentlock);
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
+index d8b6957..7a4e7bd 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
+@@ -136,6 +136,10 @@ public:
+    */
+   void SetSubtitleVerticalPosition(const int value, bool save);
+ 
++  void SetDynamicSubtitleOffset(const float value);
++
++  float AdjustDynamicSubtitleOffset(float delta);
++
+   // Functions called from GUI
+   bool Supports(ERENDERFEATURE feature) const;
+   bool Supports(ESCALINGMETHOD method) const;
+diff --git a/xbmc/settings/Settings.h b/xbmc/settings/Settings.h
+index 7e72c9e..1b2073a 100644
+--- a/xbmc/settings/Settings.h
++++ b/xbmc/settings/Settings.h
+@@ -209,6 +209,10 @@ public:
+   static constexpr auto SETTING_SUBTITLES_DOWNLOADFIRST = "subtitles.downloadfirst";
+   static constexpr auto SETTING_SUBTITLES_TV = "subtitles.tv";
+   static constexpr auto SETTING_SUBTITLES_MOVIE = "subtitles.movie";
++  static constexpr auto SETTING_SUBTITLES_LOCALMOVEMENT = "subtitles.localmovement";
++  static constexpr auto SETTING_SUBTITLES_POSITIONPERCENTAGE = "subtitles.positionpercentage";
++  static constexpr auto SETTING_SUBTITLES_REMEMBEROFFSET = "subtitles.rememberoffset";
++  static constexpr auto SETTING_SUBTITLES_SUBTITLEOFFSET = "subtitles.subtitleoffset";
+   static constexpr auto SETTING_DVDS_AUTOACTION = "dvds.autoaction";
+   static constexpr auto SETTING_DVDS_PLAYERREGION = "dvds.playerregion";
+   static constexpr auto SETTING_DVDS_AUTOMENU = "dvds.automenu";
+diff --git a/xbmc/settings/SubtitlesSettings.cpp b/xbmc/settings/SubtitlesSettings.cpp
+index 3646292..7aa3b59 100644
+--- a/xbmc/settings/SubtitlesSettings.cpp
++++ b/xbmc/settings/SubtitlesSettings.cpp
+@@ -43,7 +43,9 @@ CSubtitlesSettings::CSubtitlesSettings(const std::shared_ptr<CSettings>& setting
+        CSettings::SETTING_SUBTITLES_LANGUAGES,      CSettings::SETTING_SUBTITLES_STORAGEMODE,
+        CSettings::SETTING_SUBTITLES_CUSTOMPATH,     CSettings::SETTING_SUBTITLES_PAUSEONSEARCH,
+        CSettings::SETTING_SUBTITLES_DOWNLOADFIRST,  CSettings::SETTING_SUBTITLES_TV,
+-       CSettings::SETTING_SUBTITLES_MOVIE,          CSettings::SETTING_SUBTITLES_LINE_SPACING});
++       CSettings::SETTING_SUBTITLES_MOVIE,          CSettings::SETTING_SUBTITLES_LINE_SPACING,
++       CSettings::SETTING_SUBTITLES_LOCALMOVEMENT,  CSettings::SETTING_SUBTITLES_POSITIONPERCENTAGE,
++       CSettings::SETTING_SUBTITLES_REMEMBEROFFSET, CSettings::SETTING_SUBTITLES_SUBTITLEOFFSET});
+ }
+ 
+ CSubtitlesSettings::~CSubtitlesSettings()
+@@ -63,6 +65,14 @@ void CSubtitlesSettings::OnSettingChanged(const std::shared_ptr<const CSetting>&
+     SetChanged();
+     NotifyObservers(ObservableMessagePositionChanged);
+   }
++  else if (setting->GetId() == CSettings::SETTING_SUBTITLES_REMEMBEROFFSET)
++  {
++    // When the remember-offset toggle is turned off, clear the remembered
++    // offset so guisettings.xml does not retain a stale value that would
++    // resurrect if the user later re-enables the toggle.
++    if (!m_settings->GetBool(CSettings::SETTING_SUBTITLES_REMEMBEROFFSET))
++      m_settings->SetNumber(CSettings::SETTING_SUBTITLES_SUBTITLEOFFSET, 0.0);
++  }
+ }
+ 
+ Align CSubtitlesSettings::GetAlignment() const
+@@ -198,6 +208,31 @@ int CSubtitlesSettings::GetBitmapSaturationPerc() const
+   return m_settings->GetInt(CSettings::SETTING_SUBTITLES_HADESBITMAPSATURATION);
+ }
+ 
++bool CSubtitlesSettings::IsLocalMovementEnabled() const
++{
++  return m_settings->GetBool(CSettings::SETTING_SUBTITLES_LOCALMOVEMENT);
++}
++
++float CSubtitlesSettings::GetPositionPercentage() const
++{
++  return static_cast<float>(m_settings->GetInt(CSettings::SETTING_SUBTITLES_POSITIONPERCENTAGE));
++}
++
++bool CSubtitlesSettings::IsRememberOffsetEnabled() const
++{
++  return m_settings->GetBool(CSettings::SETTING_SUBTITLES_REMEMBEROFFSET);
++}
++
++float CSubtitlesSettings::GetRememberedOffset() const
++{
++  return static_cast<float>(m_settings->GetNumber(CSettings::SETTING_SUBTITLES_SUBTITLEOFFSET));
++}
++
++void CSubtitlesSettings::SetRememberedOffset(float value) const
++{
++  m_settings->SetNumber(CSettings::SETTING_SUBTITLES_SUBTITLEOFFSET, static_cast<double>(value));
++}
++
+ void CSubtitlesSettings::SettingOptionsSubtitleFontsFiller(const SettingConstPtr& setting,
+                                                            std::vector<StringSettingOption>& list,
+                                                            std::string& current)
+diff --git a/xbmc/settings/SubtitlesSettings.h b/xbmc/settings/SubtitlesSettings.h
+index 0553bc5..c677cbe 100644
+--- a/xbmc/settings/SubtitlesSettings.h
++++ b/xbmc/settings/SubtitlesSettings.h
+@@ -218,6 +218,36 @@ public:
+       \return The share of their saturation that is drawn, in %, 100 meaning as authored */
+   int GetBitmapSaturationPerc() const;
+ 
++  /*!
++   * \brief Check if local subtitle movement is enabled
++   * \return True if local movement is enabled, otherwise false
++   */
++  bool IsLocalMovementEnabled() const;
++
++  /*!
++   * \brief Get the subtitle position percentage from top of screen
++   * \return The percentage from top (10-90)
++   */
++  float GetPositionPercentage() const;
++
++  /*!
++   * \brief Check if remembering the dynamic subtitle offset is enabled
++   * \return True if remember-offset is enabled, otherwise false
++   */
++  bool IsRememberOffsetEnabled() const;
++
++  /*!
++   * \brief Get the remembered dynamic subtitle offset (% of screen height)
++   * \return The remembered offset, in [-100, 100]
++   */
++  float GetRememberedOffset() const;
++
++  /*!
++   * \brief Persist the dynamic subtitle offset for later restore
++   * \param value The offset in % of screen height, in [-100, 100]
++   */
++  void SetRememberedOffset(float value) const;
++
+   static void SettingOptionsSubtitleFontsFiller(const std::shared_ptr<const CSetting>& setting,
+                                                 std::vector<StringSettingOption>& list,
+                                                 std::string& current);
+diff --git a/xbmc/video/PlayerController.cpp b/xbmc/video/PlayerController.cpp
+index ce97f59..2a06f76 100644
+--- a/xbmc/video/PlayerController.cpp
++++ b/xbmc/video/PlayerController.cpp
+@@ -41,14 +41,6 @@
+ #include <algorithm>
+ 
+ using namespace KODI;
+-using namespace UTILS;
+-
+-CPlayerController::CPlayerController()
+-{
+-  MOVING_SPEED::EventCfg eventCfg{100.0f, 300.0f, 200};
+-  m_movingSpeed.AddEventConfig(ACTION_SUBTITLE_VSHIFT_UP, eventCfg);
+-  m_movingSpeed.AddEventConfig(ACTION_SUBTITLE_VSHIFT_DOWN, eventCfg);
+-}
+ 
+ CPlayerController::~CPlayerController() = default;
+ 
+@@ -394,66 +386,17 @@ bool CPlayerController::OnAction(const CAction &action)
+ 
+       case ACTION_SUBTITLE_VSHIFT_UP:
+       {
+-        const auto settings{CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings()};
+-        SUBTITLES::Align subAlign{settings->GetAlignment()};
+-        if (subAlign != SUBTITLES::Align::BOTTOM_OUTSIDE && subAlign != SUBTITLES::Align::MANUAL)
+-          return true;
+-
+-        RESOLUTION_INFO resInfo = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo();
+-        CVideoSettings vs = appPlayer->GetVideoSettings();
+-
+-        int maxPos = resInfo.Overscan.bottom;
+-        if (subAlign == SUBTITLES::Align::BOTTOM_OUTSIDE)
+-        {
+-          maxPos =
+-              resInfo.Overscan.bottom + static_cast<int>(static_cast<float>(resInfo.iHeight) / 100 *
+-                                                         settings->GetVerticalMarginPerc());
+-        }
+-
+-        vs.m_subtitleVerticalPosition -=
+-            static_cast<int>(m_movingSpeed.GetUpdatedDistance(ACTION_SUBTITLE_VSHIFT_UP));
+-        if (vs.m_subtitleVerticalPosition < resInfo.Overscan.top)
+-          vs.m_subtitleVerticalPosition = resInfo.Overscan.top;
+-        appPlayer->SetSubtitleVerticalPosition(vs.m_subtitleVerticalPosition,
+-                                               action.GetText() == "save");
+-
+-        ShowSlider(action.GetID(), 277, static_cast<float>(vs.m_subtitleVerticalPosition),
+-                   static_cast<float>(resInfo.Overscan.top), 1.0f, static_cast<float>(maxPos));
++        const float next = appPlayer->AdjustDynamicSubtitleOffset(-0.5f);
++        PersistRememberedOffsetIfEnabled(next);
++        ShowSlider(action.GetID(), 277, next, -100.0f, 0.5f, 100.0f);
+         return true;
+       }
+ 
+       case ACTION_SUBTITLE_VSHIFT_DOWN:
+       {
+-        const auto settings{CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings()};
+-        SUBTITLES::Align subAlign{settings->GetAlignment()};
+-        if (subAlign != SUBTITLES::Align::BOTTOM_OUTSIDE && subAlign != SUBTITLES::Align::MANUAL)
+-          return true;
+-
+-        RESOLUTION_INFO resInfo = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo();
+-        CVideoSettings vs = appPlayer->GetVideoSettings();
+-
+-        int maxPos = resInfo.Overscan.bottom;
+-        if (subAlign == SUBTITLES::Align::BOTTOM_OUTSIDE)
+-        {
+-          // In this case the position not includes the vertical margin,
+-          // so to be able to move the text to the bottom of the screen
+-          // we must extend the maximum position with the vertical margin.
+-          // Note that the text may go also slightly off-screen, this is
+-          // caused by Libass see "displacement compensation" on OverlayRenderer
+-          maxPos =
+-              resInfo.Overscan.bottom + static_cast<int>(static_cast<float>(resInfo.iHeight) / 100 *
+-                                                         settings->GetVerticalMarginPerc());
+-        }
+-
+-        vs.m_subtitleVerticalPosition +=
+-            static_cast<int>(m_movingSpeed.GetUpdatedDistance(ACTION_SUBTITLE_VSHIFT_DOWN));
+-        if (vs.m_subtitleVerticalPosition > maxPos)
+-          vs.m_subtitleVerticalPosition = maxPos;
+-        appPlayer->SetSubtitleVerticalPosition(vs.m_subtitleVerticalPosition,
+-                                               action.GetText() == "save");
+-
+-        ShowSlider(action.GetID(), 277, static_cast<float>(vs.m_subtitleVerticalPosition),
+-                   static_cast<float>(resInfo.Overscan.top), 1.0f, static_cast<float>(maxPos));
++        const float next = appPlayer->AdjustDynamicSubtitleOffset(+0.5f);
++        PersistRememberedOffsetIfEnabled(next);
++        ShowSlider(action.GetID(), 277, next, -100.0f, 0.5f, 100.0f);
+         return true;
+       }
+ 
+@@ -688,6 +631,13 @@ void CPlayerController::ShowSlider(int action, int label, float value, float min
+     CGUIDialogSlider::Display(label, value, min, delta, max, this);
+ }
+ 
++void CPlayerController::PersistRememberedOffsetIfEnabled(float offset)
++{
++  const auto subSettings{CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings()};
++  if (subSettings->IsRememberOffsetEnabled())
++    subSettings->SetRememberedOffset(offset);
++}
++
+ void CPlayerController::OnSliderChange(void *data, CGUISliderControl *slider)
+ {
+   if (!slider)
+@@ -703,7 +653,7 @@ void CPlayerController::OnSliderChange(void *data, CGUISliderControl *slider)
+   else if (m_sliderAction == ACTION_SUBTITLE_VSHIFT_UP ||
+            m_sliderAction == ACTION_SUBTITLE_VSHIFT_DOWN)
+   {
+-    std::string strValue = StringUtils::Format("{:.0f}px", slider->GetFloatValue());
++    std::string strValue = StringUtils::Format("{:+.1f} %", slider->GetFloatValue());
+     slider->SetTextValue(strValue);
+   }
+   else if (m_sliderAction == ACTION_VOLAMP_UP ||
+diff --git a/xbmc/video/PlayerController.h b/xbmc/video/PlayerController.h
+index 731b52c..f104293 100644
+--- a/xbmc/video/PlayerController.h
++++ b/xbmc/video/PlayerController.h
+@@ -10,7 +10,6 @@
+ 
+ #include "guilib/ISliderCallback.h"
+ #include "input/actions/interfaces/IActionListener.h"
+-#include "utils/MovingSpeed.h"
+ 
+ /*! \brief Player controller class to handle user actions.
+ 
+@@ -35,7 +34,7 @@ public:
+   void OnSliderChange(void *data, CGUISliderControl *slider) override;
+ 
+ protected:
+-  CPlayerController();
++  CPlayerController() = default;
+   CPlayerController(const CPlayerController&) = delete;
+   CPlayerController& operator=(CPlayerController const&) = delete;
+   ~CPlayerController() override;
+@@ -57,6 +56,11 @@ private:
+    */
+   bool NextAudioStream();
+ 
++  /*!
++   * \brief Persist \p offset as the remembered subtitle offset, but only if the
++   *        remember-offset toggle is enabled. No-op otherwise.
++   */
++  void PersistRememberedOffsetIfEnabled(float offset);
++
+   int m_sliderAction = 0; ///< \brief set to the action id for a slider being displayed \sa ShowSlider
+-  KODI::UTILS::MOVING_SPEED::CMovingSpeed m_movingSpeed;
+ };
