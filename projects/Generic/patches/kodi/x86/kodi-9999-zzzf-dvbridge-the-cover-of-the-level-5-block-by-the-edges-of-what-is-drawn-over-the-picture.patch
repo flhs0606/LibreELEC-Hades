@@ -1,0 +1,503 @@
+From f7e3df030259b4fe646b325523a474e02a2868c4 Mon Sep 17 00:00:00 2001
+From: LibreELEC Hades <dev@localhost>
+Date: Wed, 18 Nov 2026 13:26:56 +0800
+Subject: [PATCH] dvbridge: the cover of the level 5 block by the edges of what
+ is drawn over the picture
+
+A frame with something drawn over its picture no longer takes the level
+5 offsets of every bar out: the packer is told, per edge, which edges
+what is drawn over the picture reaches. Two sources know where it went:
+the occupancy rectangles of the GUI (the pass of the packer, or the mask
+of the GUI texture, asked for at the fold), and the rectangle of the PQ
+subtitles drawn into the picture, which the overlay renderer now gives
+back. An edge that nothing reaches keeps its offsets, so a bar that no
+subtitle covers stays gated and the black floor of a display with local
+dimming stays down. Any doubt keeps every edge taken, as before.
+---
+ tools/dvbridge/dvbridge_render.c              |  17 ++-
+ tools/dvbridge/dvbridge_render.h              |   7 +-
+ .../VideoRenderers/DVBridgeGLES.cpp           |  10 +-
+ .../VideoPlayer/VideoRenderers/DVBridgeGLES.h |  11 +-
+ .../VideoRenderers/OverlayRenderer.cpp        |  12 +-
+ .../VideoRenderers/OverlayRenderer.h          |   7 +-
+ .../VideoRenderers/RenderManager.cpp          |   7 +-
+ .../windowing/gbm/WinSystemGbmGLESContext.cpp | 113 ++++++++++++++++--
+ xbmc/windowing/gbm/WinSystemGbmGLESContext.h  |  17 +++
+ 9 files changed, 174 insertions(+), 27 deletions(-)
+
+diff --git a/tools/dvbridge/dvbridge_render.c b/tools/dvbridge/dvbridge_render.c
+index e076c31..c706007 100644
+--- a/tools/dvbridge/dvbridge_render.c
++++ b/tools/dvbridge/dvbridge_render.c
+@@ -3406,7 +3406,7 @@ bool dvbridge_render_reference(struct dvbridge_renderer *ref, const struct dvbri
+         /* packed in its transport: by packer where it goes out converted. Nothing is drawn over
+          * its picture (a frame with GUI elements is not checked): the film's active area */
+         ok = ok && dvbridge_render_pack(ref, packer, framebuffer, 3840, 2160, true,
+-                                        DVBRIDGE_COVER_NONE, 0, 0.0f);
++                                        DVBRIDGE_COVER_NONE, 0, 0, 0.0f);
+     }
+     if (ok && packets && !ref->low_latency)
+         dvbridge_packets(ref->pending, packets);
+@@ -3598,7 +3598,8 @@ int dvbridge_render_warm(struct dvbridge_renderer *r, const struct pl_frame *sou
+                          * over the bars measured, as with the GUI over the picture: the program of
+                          * that measurement is made too (the packer's are the same either way) */
+                         packed_once = dvbridge_render_pack(r, packer, framebuffer, 3840, 2160,
+-                                                           true, DVBRIDGE_COVER_MEASURE, 0, 0.0f);
++                                                           true, DVBRIDGE_COVER_MEASURE, 0, 0,
++                                                           0.0f);
+                     }
+                 } else {
+                     ok = dvbridge_render_packed(r, frame, metadata, bytes, pts, frame_el, geometry,
+@@ -3636,7 +3637,7 @@ int dvbridge_render_warm(struct dvbridge_renderer *r, const struct pl_frame *sou
+             const bool ok =
+                 dvbridge_render_rgb(r, source, metadata, bytes, pts, el_pts, geometry) &&
+                 (!packer || dvbridge_render_pack(r, packer, framebuffer, 3840, 2160, true,
+-                                                 DVBRIDGE_COVER_MEASURE, 0, 0.0f));
++                                                 DVBRIDGE_COVER_MEASURE, 0, 0, 0.0f));
+             r->gui_level = level;
+             glFinish();
+             done.made += ok;
+@@ -3954,7 +3955,7 @@ bool dvbridge_render_pack_takes_gui(const struct dvbridge_renderer *r)
+ 
+ bool dvbridge_render_pack(struct dvbridge_renderer *r, struct dvbridge_gl_packer *packer,
+                           unsigned framebuffer, int width, int height, bool flip, int cover,
+-                          unsigned gui_texture, float gui_peak)
++                          unsigned given, unsigned gui_texture, float gui_peak)
+ {
+     if (r)
+         r->gui_drawn = 0; /* (Hades: until a pack in the source transport says otherwise) */
+@@ -3983,8 +3984,12 @@ bool dvbridge_render_pack(struct dvbridge_renderer *r, struct dvbridge_gl_packer
+             return false;
+         const unsigned bars = (margins[0] ? 1u : 0u) | (margins[1] ? 2u : 0u) |
+                               (margins[2] ? 4u : 0u) | (margins[3] ? 8u : 0u);
+-        if (cover != DVBRIDGE_COVER_MEASURE || !r->source_packer ||
+-            !dvbridge_source_cover(r->source_packer, rgb, margins, &edges))
++        /* Hades: the edges the caller gives, as those it measured would be (its GUI cannot be:
++         * this pack blends it itself, the fold) */
++        if (cover == DVBRIDGE_COVER_GIVEN)
++            edges = given;
++        else if (cover != DVBRIDGE_COVER_MEASURE || !r->source_packer ||
++                 !dvbridge_source_cover(r->source_packer, rgb, margins, &edges))
+             edges = bars;
+         if (!dvbridge_candidate_cover(r->pending, edges & bars))
+             return false;
+diff --git a/tools/dvbridge/dvbridge_render.h b/tools/dvbridge/dvbridge_render.h
+index 00d786c..6218e30 100644
+--- a/tools/dvbridge/dvbridge_render.h
++++ b/tools/dvbridge/dvbridge_render.h
+@@ -723,14 +723,17 @@ bool dvbridge_render_source_scales(const struct dvbridge_renderer *renderer,
+  * display is sent describes it (dvbridge_candidate_cover()): nothing was (as prepared, the film's
+  * active area); something was, and the edges of the active picture it goes beyond are measured on
+  * the GPU (the call waits for it); something was, and the area is taken out on every edge that has
+- * bars (where the caller does not wait for the GPU). */
++ * bars (where the caller does not wait for the GPU); something was, and the area is taken out on
++ * the edges the caller gives in given (1 left, 2 right, 4 top, 8 bottom), of those that have bars
++ * (a caller that does not wait for the GPU either, and knows what its GUI reaches). */
+ #define DVBRIDGE_COVER_NONE 0
+ #define DVBRIDGE_COVER_MEASURE 1
+ #define DVBRIDGE_COVER_BARS 2
++#define DVBRIDGE_COVER_GIVEN 3
+ struct dvbridge_gl_packer;
+ bool dvbridge_render_pack(struct dvbridge_renderer *renderer, struct dvbridge_gl_packer *packer,
+                           unsigned framebuffer, int width, int height, bool flip_y, int cover,
+-                          unsigned gui_texture, float gui_pq_peak);
++                          unsigned given, unsigned gui_texture, float gui_pq_peak);
+ /* Hades: whether the pack of the frame that is prepared would take the GUI over its picture (the
+  * converted transport), for the caller to hand it the GUI (dvbridge_render_pack()) instead of
+  * compositing the GUI into the picture itself: the pass of the composite is not run then */
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+index 8c37520..dec575a 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+@@ -1765,7 +1765,7 @@ bool CDVBridgeGLES::GraphicsRange(int whitePercent, dvbridge_graphics_range& ran
+ }
+ 
+ bool CDVBridgeGLES::Pack(unsigned int framebuffer, int width, int height, bool flipY, Cover cover,
+-                         unsigned guiTexture, float guiPeak)
++                         unsigned coverEdges, unsigned guiTexture, float guiPeak)
+ {
+   m_packed = false;
+   if (!m_prepared)
+@@ -1776,8 +1776,9 @@ bool CDVBridgeGLES::Pack(unsigned int framebuffer, int width, int height, bool f
+   m_packed = dvbridge_render_pack(m_renderer, m_packer, framebuffer, width, height, flipY,
+                                   cover == Cover::MEASURE ? DVBRIDGE_COVER_MEASURE
+                                   : cover == Cover::BARS  ? DVBRIDGE_COVER_BARS
++                                  : cover == Cover::GIVEN ? DVBRIDGE_COVER_GIVEN
+                                                           : DVBRIDGE_COVER_NONE,
+-                                  guiTexture, guiPeak);
++                                  coverEdges, guiTexture, guiPeak);
+   if (!m_packed)
+     return Fail("transport-packing");
+   // Hades: the check of the GUI cache (dvguicachecheck): what the frames that took it copied, and
+@@ -2218,6 +2219,11 @@ bool CDVBridgeGLES::PreparedPictureBars(unsigned int bars[4], unsigned int offse
+          dvbridge_candidate_picture_bars(dvbridge_render_candidate(m_renderer), bars, offsets);
+ }
+ 
++bool CDVBridgeGLES::PreparedActiveArea(unsigned int margins[4]) const
++{
++  return m_renderer && dvbridge_active_area(dvbridge_render_candidate(m_renderer), margins);
++}
++
+ void CDVBridgeGLES::IgnoreL5(unsigned int picture, const unsigned int offsets[4], const char* why)
+ {
+   m_l5Video = dvbridge_cm40_video_of(picture, g_cm40Video.load());
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+index 4b672fb..452d313 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+@@ -130,6 +130,11 @@ public:
+   //! picture: dvbridge_candidate_picture_bars()); false where there is no such frame, it is drawn through a
+   //! view, or its offsets are left aside; offsets: its level 5 offsets as the RPU gives them
+   bool PreparedPictureBars(unsigned int bars[4], unsigned int offsets[4]) const;
++  //! Hades: the blanking margins of the active area of the frame prepared (left, right, top,
++  //! bottom, in the samples of the transport's 3840x2160 raster: dvbridge_active_area()) - the
++  //! same source from which the bridge takes the edges of its own level 5 cover; false where
++  //! there is no such frame
++  bool PreparedActiveArea(unsigned int margins[4]) const;
+   //! Hades: these level 5 offsets of the video of the picture (Layer::video) are left aside while they come,
+   //! also by a renderer made again within it (Cm40Video()); why: a fixed text; nullptr: taken again
+   void IgnoreL5(unsigned int picture, const unsigned int offsets[4], const char* why);
+@@ -312,11 +317,13 @@ public:
+     NONE, //!< nothing was drawn over it
+     MEASURE, //!< something was: the edges it goes beyond measured (the GPU waited for)
+     BARS, //!< something was: every edge that has bars (the GPU not waited for)
++    GIVEN, //!< something was: the edges taken out given in coverEdges (the GPU not waited for)
+   };
+   //! Hades: guiTexture/guiPeak - the GUI over the picture, blended by the pack itself (the fold,
+-  //! GuiPackFold(); 0: none)
++  //! GuiPackFold(); 0: none); coverEdges - with Cover::GIVEN, the edges taken out (1 left, 2 right,
++  //! 4 top, 8 bottom), from what the caller knows its GUI reaches
+   bool Pack(unsigned int framebuffer, int width, int height, bool flipY, Cover cover = Cover::NONE,
+-            unsigned guiTexture = 0, float guiPeak = 0.0f);
++            unsigned coverEdges = 0, unsigned guiTexture = 0, float guiPeak = 0.0f);
+   //! Hades: a transport frame that marks the end of the signal (video/dveos): black, with the
+   //! packets of the last frame with EOS set (dvbridge_eos.h), into framebuffer as Pack() packs.
+   //! packets: how many; false, with why, where there is no frame whose packets it can take.
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.cpp
+index 75dd6d2..91de2cf 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.cpp
+@@ -310,17 +310,25 @@ void CRenderer::Render(int idx, float depth)
+ 
+ // drawn onto the back buffer right after the video, bypassing the GUI
+ // FBO's sRGB->HDR conversion
+-void CRenderer::RenderHDROverlays(int idx)
++// Hades: the rectangle around what was drawn is given back, for the level 5 cover of a frame of
++// native Dolby Vision output (the PQ subtitles drawn into its picture: DVHDROverlayDrawn())
++CRect CRenderer::RenderHDROverlays(int idx)
+ {
+   if (!CServiceBroker::GetWinSystem()->IsHdrComposite())
+-    return;
++    return {};
+ 
+   std::unique_lock lock(m_section);
+ 
++  CRect drawn;
+   for (auto& item : ResolveRenderItems(idx, true))
++  {
+     item.overlay->Render(item.state);
++    drawn.Union(CRect(item.state.x, item.state.y, item.state.x + item.state.width,
++                      item.state.y + item.state.height));
++  }
+ 
+   ReleaseUnused();
++  return drawn;
+ }
+ 
+ std::vector<CRenderer::SRenderItem> CRenderer::ResolveRenderItems(int idx, bool hdrOverlays)
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.h b/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.h
+index 3d4416e..cccef14 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/OverlayRenderer.h
+@@ -15,6 +15,7 @@
+ #include "cores/VideoPlayer/DVDSubtitles/SubtitlesStyle.h"
+ #include "settings/SubtitlesSettings.h"
+ #include "threads/CriticalSection.h"
++#include "utils/Geometry.h"
+ #include "utils/Observer.h"
+ 
+ #include <array>
+@@ -160,8 +161,10 @@ namespace OVERLAY {
+     void SetSubtitlePlaneOffset(std::optional<int> offset) { m_subtitlePlaneOffset = offset; }
+     virtual void Render(int idx, float depth = 0.0f);
+ 
+-    // render overlays already in HDR (not sRGB)
+-    void RenderHDROverlays(int idx);
++    // render overlays already in HDR (not sRGB); gives back the rectangle around what was
++    // drawn, in the top-down coordinates of the window, empty where nothing was (the PQ
++    // subtitles drawn into the picture of native Dolby Vision output: DVHDROverlayDrawn())
++    CRect RenderHDROverlays(int idx);
+ 
+     /*!
+      * \brief Pre-walk hook: render libass output for the present slot.
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
+index ae5d158..97788b9 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.cpp
+@@ -815,10 +815,15 @@ void CRenderManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
+     const bool dvOverlays = dvWindow && m_overlays.HasVisibleOverlay(m_presentsource) &&
+                             dvWindow->BeginDVBridgeHDROverlays();
+ #endif
+-    m_overlays.RenderHDROverlays(m_presentsource);
++    [[maybe_unused]] const CRect drawn = m_overlays.RenderHDROverlays(m_presentsource);
+ #ifdef HAVE_DVBRIDGE
+     if (dvOverlays)
++    {
+       dvWindow->EndDVBridgeHDROverlays();
++      // Hades: where the subtitles went into the picture, what they cover takes the level 5
++      // block of the frame out, per edge (DVCoverEdges())
++      dvWindow->DVHDROverlayDrawn(drawn);
++    }
+ #endif
+   }
+ 
+diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+index 7cb7ed5..5ba165d 100644
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -604,11 +604,14 @@ void CWinSystemGbmGLESContext::PresentRender(bool rendered, bool videoLayer)
+     int64_t drainFlipNs = 0;
+     // Hades: with something drawn over the picture, the level 5 block that the display is sent
+     // is taken out to it (CDVBridgeGLES::Pack()): beyond which edges is measured where the CPU
+-    // waits for the GPU anyway (the way that waits, below); a frame ahead it does not, and every
+-    // edge that has bars is taken.
++    // waits for the GPU anyway (the way that waits, below); a frame ahead it does not, and the
++    // edges are those of what was drawn over it where they are fresh — the occupancy rectangles
++    // of the GUI, the rectangle of the PQ subtitles drawn into the picture (DVCoverEdges()
++    // below) — else every edge that has bars is taken.
+     bool ahead = false;
+     bool aheadAsked = false;
+     auto cover = CDVBridgeGLES::Cover::NONE;
++    unsigned coverEdges = 0;
+     if (m_dvFrame && m_dvBridge && m_dvDrawnOver)
+     {
+       // (not the frame that makes a held change of mode: it waits, see CHeldModeAnnouncement below)
+@@ -616,20 +619,34 @@ void CWinSystemGbmGLESContext::PresentRender(bool rendered, bool videoLayer)
+               m_modeAnnounce.Pending() != CHeldModeAnnouncement::Step::BEFORE_NEXT;
+       aheadAsked = true;
+       cover = ahead ? CDVBridgeGLES::Cover::BARS : CDVBridgeGLES::Cover::MEASURE;
++      // Hades: the frame that would take every edge with bars (a frame ahead; the fold of the GUI
++      // into the pack, whose blend nothing can measure) takes its edges per edge instead where
++      // the rectangles of what was drawn over it are fresh, the GUI's and the PQ subtitles':
++      // an edge that none of them reaches keeps its offsets. Any doubt keeps every edge taken,
++      // as before.
++      if (cover == CDVBridgeGLES::Cover::BARS)
++      {
++        unsigned margins[4];
++        coverEdges = m_dvBridge->PreparedActiveArea(margins) ? DVCoverEdges(margins) : 16;
++        if (coverEdges < 16)
++          cover = CDVBridgeGLES::Cover::GIVEN;
++      }
+     }
+     // Hades: the GUI of the fold, taken before the frame forgets it: Pack() below hands it to the
+     // pack, which blends it over the picture itself
+     const unsigned foldGuiTexture = m_dvFoldGuiTexture;
+     const float foldGuiPeak = m_dvFoldGuiPeak;
+     m_dvDrawnOver = false;
++    m_dvGuiOver = false;
++    m_dvOverlayDrawn = false;
+     m_dvFoldGuiTexture = 0; // (Hades: the fold of the GUI into the pack, handed above or not)
+     // Hades: (the level of the conversion under the GUI of this frame, once it is packed)
+     if (m_dvFrame)
+       m_dvGuiDrawn = 0;
+     // EGL's window framebuffer has a bottom-left GL origin, while transport
+     // metadata is indexed from the top-left of the HDMI raster.
+-    if (m_dvFrame && m_dvBridge &&
+-        m_dvBridge->Pack(0, m_nWidth, m_nHeight, true, cover, foldGuiTexture, foldGuiPeak))
++    if (m_dvFrame && m_dvBridge && m_dvBridge->Pack(0, m_nWidth, m_nHeight, true, cover,
++                                                     coverEdges, foldGuiTexture, foldGuiPeak))
+     {
+       // Hades: the level its pixels drawn over were converted at (CDVGuiLevel): its time and its
+       // presentation count for that level
+@@ -2430,6 +2447,7 @@ void CWinSystemGbmGLESContext::CompositeGui()
+     if (m_dvBridge->GuiInPlace())
+     {
+       m_dvDrawnOver = true;
++      m_dvGuiOver = true;
+       m_dvStats.guiInPlace++;
+       if (!m_dvGuiInPlaceSaid)
+       {
+@@ -2461,8 +2479,13 @@ void CWinSystemGbmGLESContext::CompositeGui()
+       if (fold && (!component || component->GetAdvancedSettings()->m_videoDVGuiPackFold))
+       {
+         m_dvDrawnOver = true;
++        m_dvGuiOver = true;
+         m_dvFoldGuiTexture = m_guiFbo.Texture();
+         m_dvFoldGuiPeak = m_compositeShader ? m_compositeShader->GetPQPeak() : 0.0203f;
++        // Hades: the mask of what the GUI occupies, asked for here for the level 5 cover of the
++        // frame (DVCoverEdges()): the pack blends the GUI itself, and no pass of the packer makes
++        // the tiles of it (the converted transport has none)
++        HdrTilesUpdate(true);
+         return;
+       }
+     }
+@@ -2498,7 +2521,10 @@ void CWinSystemGbmGLESContext::CompositeGui()
+   // block that the display is sent in both: so it is a + dst (1 - a); the colour is blended as always
+   coverage = dvComposite;
+   if (dvComposite)
++  {
+     m_dvDrawnOver = true;
++    m_dvGuiOver = true;
++  }
+ #endif
+   if (coverage)
+   {
+@@ -5844,6 +5870,8 @@ int CWinSystemGbmGLESContext::RenderHdr10Tunnel(const CDVBridgeGLES::Layer& laye
+   m_dvStepFrame = {};
+   m_dvGpuTimerFrame = -1;
+   m_dvDrawnOver = false;
++  m_dvGuiOver = false;
++  m_dvOverlayDrawn = false;
+   if (!BeginDVBridge(true, m_compositeTransfer))
+   {
+     m_dvShown = {};
+@@ -6623,6 +6651,8 @@ bool CWinSystemGbmGLESContext::RenderDVBridge(const CDVBridgeGLES::Layer& layer,
+   m_dvStepFrame = {};
+   m_dvGpuTimerFrame = -1;
+   m_dvDrawnOver = false; // (Hades: nothing drawn over this frame's picture yet)
++  m_dvGuiOver = false;
++  m_dvOverlayDrawn = false;
+   if (!BeginDVBridge())
+   {
+     m_dvShown = {};
+@@ -6888,12 +6918,13 @@ bool CWinSystemGbmGLESContext::RenderDVBridge(const CDVBridgeGLES::Layer& layer,
+   }
+   if (m_dvFrame && overlayFree)
+     m_dvPlainDirect = m_dvBridge->Direct() ? 1 : 0;
+-  // Hades: the tile mask of what the GUI can reach, for the composite of the frames whose GUI
+-  // pass is left out: asked for where this frame has the GUI composited over it, in the source
+-  // transport
+-  DVTilesUpdate(m_dvFrame && m_guiReusing && !overlayFree && !captured && drawnTiles &&
+-                guiInPlace <= 0.0f && drawnSettings &&
+-                drawnSettings->GetAdvancedSettings()->m_videoDVGuiScissor);
++  // Hades: the tile mask of what the GUI can reach: for the composite of the frames whose GUI
++  // pass is left out, and for the level 5 cover of any frame with the GUI drawn over it (the
++  // cover by the edges the GUI reaches, DVCoverEdges(); the fold of the GUI into the pack
++  // included - its picture has the tiles of the pass 7 of the packer as any other). Asked for
++  // where this frame has the GUI over it; the composite that leaves the GUI pass out takes it
++  // under its own conditions (dvguiscissor), the cover wherever the GUI is drawn over
++  DVTilesUpdate(m_dvFrame && !overlayFree && !captured && drawnTiles);
+   if (m_dvFrame)
+     m_dvPrepared = frame;
+   else
+@@ -7024,6 +7055,16 @@ void CWinSystemGbmGLESContext::EndDVBridgeHDROverlays()
+     glEnable(GL_SCISSOR_TEST);
+ }
+ 
++void CWinSystemGbmGLESContext::DVHDROverlayDrawn(const CRect& drawn)
++{
++  // Hades: the PQ subtitles that the overlay renderer drew into the picture, over the video and
++  // before the GUI (BeginDVBridgeHDROverlays()): their rectangle — in the top-down coordinates
++  // of the window — tells the level 5 cover of the frame (DVCoverEdges()) where they went;
++  // empty where none was drawn
++  m_dvOverlayDrawn = !drawn.IsEmpty();
++  m_dvOverlayRect = drawn;
++}
++
+ bool CWinSystemGbmGLESContext::EndDVBridgeAfterVideo()
+ {
+   // Hades: the output goes back to the menus in Dolby Vision, where they go on (CDVMenus::AfterVideo())
+@@ -7550,6 +7591,58 @@ void CWinSystemGbmGLESContext::DVTilesUpdate(bool wanted)
+   m_packerTried = wanted && (m_tilesPending || have);
+ }
+ 
++unsigned int CWinSystemGbmGLESContext::DVCoverEdges(const unsigned int margins[4]) const
++{
++  // Hades: the edges that what was drawn over the frame reaches, from each of the two that know
++  // where it went: the occupancy rectangles of the GUI (DVTilesUpdate(): a pass of the packer
++  // made them, or the composite's own mask was asked for) and the rectangle of the PQ subtitles
++  // drawn into the picture (DVHDROverlayDrawn()). An edge that none of them reaches keeps its
++  // offsets.
++  unsigned edges = 0;
++  // (the rectangles say nothing where they are not of this GUI, where there are none, where they
++  // stand for the whole quad, or where they are not in the pixels of the transport's raster; the
++  // mask of the HDR composite is not taken either: it is made for another composite)
++  const bool tiles = m_tilesUse && m_tilesGen == m_guiGen && !m_tilesRects.empty() &&
++                     (m_tilesKind == TILES_PACKER || m_tilesKind == TILES_GUI_DV) &&
++                     m_guiFboWidth == 3840 && m_guiFboHeight == 2160;
++  if (tiles)
++  {
++    // (the bands the display would gate beyond the active area, at the bottom-left origin of the
++    // window the rectangles of the tiles are in: the top margin of the raster at the top of it)
++    const unsigned left = margins[0], right = 3840 - margins[1], top = 2160 - margins[2],
++                   bottom = margins[3];
++    for (const auto& r : m_tilesRects)
++    {
++      if (r.x * DVBRIDGE_SOURCE_TILE < left)
++        edges |= 1;
++      if ((r.x + r.w) * DVBRIDGE_SOURCE_TILE > right)
++        edges |= 2;
++      if ((r.y + r.h) * DVBRIDGE_SOURCE_TILE > top)
++        edges |= 4;
++      if (r.y * DVBRIDGE_SOURCE_TILE < bottom)
++        edges |= 8;
++    }
++  }
++  else if (m_dvGuiOver)
++    return 16; // (the GUI was drawn over and its rectangles say nothing: every edge stays taken)
++  // (the subtitles of the picture: their rectangle is in the top-down coordinates of the window,
++  // the raster's rows numbered their own way)
++  if (m_dvOverlayDrawn && m_nWidth == 3840 && m_nHeight == 2160)
++  {
++    const unsigned left = margins[0], right = 3840 - margins[1], top = margins[2],
++                   bottom = 2160 - margins[3];
++    if (m_dvOverlayRect.x1 < left)
++      edges |= 1;
++    if (m_dvOverlayRect.x2 > right)
++      edges |= 2;
++    if (m_dvOverlayRect.y1 < top)
++      edges |= 4;
++    if (m_dvOverlayRect.y2 > bottom)
++      edges |= 8;
++  }
++  return edges;
++}
++
+ CDVGuiReuse::Facts CWinSystemGbmGLESContext::GuiReuseFacts() const
+ {
+   CDVGuiReuse::Facts f;
+diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.h b/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
+index 7fc710a..5e031f7 100644
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.h
+@@ -182,6 +182,10 @@ public:
+   //! picture. Returns false (nothing changed) when there is no such picture this frame.
+   bool BeginDVBridgeHDROverlays();
+   void EndDVBridgeHDROverlays();
++  //! Hades: the rectangle around the PQ subtitles that the overlay renderer drew into the
++  //! picture between them (empty where none was), for the level 5 cover of the frame
++  //! (DVCoverEdges())
++  void DVHDROverlayDrawn(const CRect& drawn);
+   //! \param serial tells the picture from every other one (CPictureBuffer::doviSerial, never 0;
+   //!        0: not known): a picture that is on the screen and would be drawn again the same way
+   //!        is kept there (KeepDVBridgeFrame())
+@@ -596,6 +600,11 @@ private:
+   bool m_hdrMaskDv{false};
+   std::vector<dvbridge_tile_rect> m_tilesRects;
+   void DVTilesUpdate(bool wanted);
++  //! Hades: the edges of the active area of the frame prepared (the margins of it, of its
++  //! transport's raster) that the GUI drawn over the frame reaches, taken from the occupancy
++  //! rectangles of it (DVTilesUpdate()): 1 left, 2 right, 4 top, 8 bottom; 16 where they say
++  //! nothing of this GUI (not fresh, none, or the whole quad)
++  unsigned int DVCoverEdges(const unsigned int margins[4]) const;
+   struct dvbridge_guimask* m_guiMask{nullptr};
+   bool m_hdrMaskPending{false};
+   std::vector<uint8_t> m_hdrTiles;
+@@ -1439,6 +1448,14 @@ private:
+   //! Hades: something was drawn over the picture of this frame (the GUI, subtitles): see
+   //! PresentRender()
+   bool m_dvDrawnOver = false;
++  //! Hades: the GUI of this frame was drawn over the picture where no pass makes the occupancy
++  //! rectangles of it (the folds: the pack blends the GUI itself): where they are not fresh,
++  //! every edge is taken (DVCoverEdges())
++  bool m_dvGuiOver = false;
++  //! Hades: the PQ subtitles drawn into the picture of this frame, and the rectangle around
++  //! them, in the top-down coordinates of the window (DVHDROverlayDrawn())
++  bool m_dvOverlayDrawn = false;
++  CRect m_dvOverlayRect;
+   //! Hades: the fold of the GUI into the pack (advancedsettings.xml: dvguipackfold): the GUI
+   //! texture of this frame handed to Pack() and its white in PQ units, where nothing was
+   //! composited into the picture for the pack to blend it itself
+-- 
+2.43.0
+

@@ -1,0 +1,562 @@
+From a5f5c413c8f4f103eab31bab72efc9406d75bdf0 Mon Sep 17 00:00:00 2001
+From: LibreELEC Hades <dev@localhost>
+Date: Wed, 18 Nov 2026 10:54:56 +0800
+Subject: [PATCH] dvbridge: the level 5 offsets of a video as a setting
+ (automatic, direct, or left aside)
+
+What the player does with the level 5 offsets of a video's metadata --
+read them and describe the picture as it is placed on the screen, blank
+the bars of the raster itself, and take the edges drawn over out of them
+-- was the only behaviour, decided by the bridge. videoscreen.hadesdvl5
+(System > Display, Dolby Vision, expert) makes it the user's:
+
+- automatic, as before (the default): the offsets read as offsets of the
+  picture and of a 3840x2160 master, mapped to the picture's place;
+- direct: the offsets sent as the RPU gives them, nothing of the picture
+  blanked and no edge taken out -- right where the screen shows the
+  video pixel for pixel, wrong wherever it is scaled or zoomed, and
+  subtitles drawn over the bars are masked by the display;
+- left aside: the area of the picture's place sent, as for metadata
+  without a level 5 block.
+
+The setting is read when a native output starts, as the trims are
+(CDVEngineSettings::l5). In the two new modes the margins of a frame are
+the picture's place, so the player blanks nothing and renders as
+metadata without a level 5 block; the cover of the level 5 block (what
+is drawn over the bars) is not decided and the measurement of the
+pictures against the offsets does not run. The left-aside mode leaves
+the video's own decision alone: a change back to automatic takes the
+offsets as they are.
+
+kodi.log says once a video which way its offsets go out.
+
+Tested on the host (l5_test.c, not part of the patch): a 1920x1080
+picture placed at (960,540) in the raster with offsets 270 272 274 276
+-- automatic maps them to the smaller of the two readings (1095 1096
+677 678) and takes a covered edge out; direct sends them as they are,
+with the margins of the picture's place, whatever is drawn over, and
+keeps the mode through a restart; left aside sends that place and makes
+no decision of the video; a 3840x2160 picture filling the raster keeps
+the bytes it always had.
+---
+ .../resources/strings.po                      | 30 ++++++++++++++
+ system/settings/settings.xml                  | 29 +++++++++++++
+ tools/dvbridge/dvbridge_core.c                |  8 ++++
+ tools/dvbridge/dvbridge_core.h                | 13 ++++++
+ tools/dvbridge/dvbridge_metadata.h            | 41 +++++++++++++++++++
+ tools/dvbridge/dvbridge_render.c              | 10 +++++
+ tools/dvbridge/dvbridge_render.h              |  6 +++
+ .../VideoRenderers/DVBridgeGLES.cpp           | 23 ++++++++++-
+ .../VideoPlayer/VideoRenderers/DVBridgeGLES.h |  4 ++
+ xbmc/settings/Settings.h                      |  5 +++
+ xbmc/windowing/gbm/DVEngineSettings.h         | 10 +++++
+ .../windowing/gbm/WinSystemGbmGLESContext.cpp | 25 +++++++++--
+ 12 files changed, 199 insertions(+), 5 deletions(-)
+
+diff --git a/addons/resource.language.en_gb/resources/strings.po b/addons/resource.language.en_gb/resources/strings.po
+index 4a98ee7..a5a7606 100644
+--- a/addons/resource.language.en_gb/resources/strings.po
++++ b/addons/resource.language.en_gb/resources/strings.po
+@@ -27897,6 +27897,36 @@ msgctxt "#41889"
+ msgid "How the menus, the subtitles and every other element of the interface is drawn over a native Dolby Vision picture. On (the default): blended by the packing of the transport, which reads the picture anyway, measured the steadier pace of the two. Off: composited into the picture by a pass of its own, as the builds before drew them. The picture is the same either way, and a change takes effect at once."
+ msgstr ""
+ 
++#. Hades: label of setting "videoscreen.hadesdvl5" (group "Dolby Vision")
++#: System/settings/settings.xml
++msgctxt "#41890"
++msgid "Dolby Vision level 5 offsets"
++msgstr ""
++
++#. Hades: help of setting "videoscreen.hadesdvl5"
++#: System/settings/settings.xml
++msgctxt "#41891"
++msgid "How the active area offsets of the video's metadata reach the display. Automatic reads them and describes the picture as it is placed on the screen: the player blanks the bars itself and takes the edges it draws over out of them (the default). Direct sends the offsets as the RPU gives them and blanks nothing: right where the screen shows the video pixel for pixel, wrong wherever it is scaled or zoomed, and subtitles drawn over the bars are masked by the display. Left aside sends the area of the picture's place, as a video without them: the bars of the picture are not blanked."
++msgstr ""
++
++#. Hades: value of setting "videoscreen.hadesdvl5": automatic, read and mapped to the picture's place (the default)
++#: System/settings/settings.xml
++msgctxt "#41892"
++msgid "Automatic (read and mapped)"
++msgstr ""
++
++#. Hades: value of setting "videoscreen.hadesdvl5": direct, as the RPU gives them
++#: System/settings/settings.xml
++msgctxt "#41893"
++msgid "Direct (as the RPU gives them)"
++msgstr ""
++
++#. Hades: value of setting "videoscreen.hadesdvl5": left aside, the area of the picture's place
++#: System/settings/settings.xml
++msgctxt "#41894"
++msgid "Left aside (the picture's area)"
++msgstr ""
++
+ 
+ #. Hades: value of Kodi's tone mapping method (#36553) and of setting "videoscreen.hadesdvhdr10curve": the BT.2390 curve with libplacebo's default knee (KS = 2 maxLum - 1); translated in Estuary (#33460)
+ #: xbmc/video/dialogs/GUIDialogVideoSettings.cpp
+diff --git a/system/settings/settings.xml b/system/settings/settings.xml
+index 3f74edb..90d1bc5 100644
+--- a/system/settings/settings.xml
++++ b/system/settings/settings.xml
+@@ -4209,6 +4209,35 @@
+         <default>false</default>
+         <control type="toggle" />
+       </setting>
++      <!-- Hades: how the level 5 offsets (the active area) of a video's metadata reach the display:
++           automatic reads them and describes the picture as it is placed on the screen, the player
++           blanking the bars and taking the edges drawn over out of them (the default); direct sends
++           them as the RPU gives them and blanks nothing, right where the screen shows the video
++           pixel for pixel, wrong wherever it is scaled or zoomed, and subtitles drawn over the bars
++           are masked by the display; left aside sends the area of the picture's place, as a video
++           without them -->
++      <setting id="videoscreen.hadesdvl5" type="integer" label="41890" help="41891">
++        <requirement>
++          <and>
++            <condition>HAVE_GBM</condition>
++            <condition>HAS_GLES</condition>
++          </and>
++        </requirement>
++        <level>3</level>
++        <default>0</default>
++        <dependencies>
++          <dependency type="visible" on="property" name="supportsdv"/>
++          <dependency type="enable" setting="videoscreen.hadesdvnative">true</dependency>
++        </dependencies>
++        <constraints>
++          <options>
++            <option label="41892">0</option> <!-- automatic: read and mapped -->
++            <option label="41893">1</option> <!-- direct: as the RPU gives them -->
++            <option label="41894">2</option> <!-- left aside: the picture's area -->
++          </options>
++        </constraints>
++        <control type="spinner" format="string" />
++      </setting>
+       <!-- Hades: the trim pass (level 2) of the player where it maps Dolby Vision to the display itself (HDR10 adapted to
+            it, SDR, Low-Latency): off by default, because the only published way to apply it (the informative example of
+            SMPTE ST 2094-10 Annex B.3) takes the picture away from a studio's own grade (tools/dvbridge/dvbridge_trims.h);
+diff --git a/tools/dvbridge/dvbridge_core.c b/tools/dvbridge/dvbridge_core.c
+index 56a8cff..0611b78 100644
+--- a/tools/dvbridge/dvbridge_core.c
++++ b/tools/dvbridge/dvbridge_core.c
+@@ -71,6 +71,13 @@ void dvbridge_set_trims(struct dvbridge_context *context, bool send)
+         context->state.no_trims = !send;
+ }
+ 
++void dvbridge_set_l5(struct dvbridge_context *context, int mode)
++{
++    if (context)
++        context->state.l5_mode = mode == DVBRIDGE_L5_DIRECT || mode == DVBRIDGE_L5_IGNORE
++                                     ? mode : DVBRIDGE_L5_AUTO;
++}
++
+ void dvbridge_set_cm40_default(struct dvbridge_context *context, bool add)
+ {
+     if (context)
+@@ -264,6 +271,7 @@ bool dvbridge_candidate_reading(const struct dvbridge_candidate *candidate,
+     memcpy(reading->as_given, r->as_given, sizeof(reading->as_given));
+     memcpy(reading->margins, candidate->state.margins, sizeof(reading->margins));
+     reading->l5_ignored = r->l5_ignored;
++    reading->l5_direct = r->l5_direct;
+     reading->skipped = r->skipped;
+     reading->skipped_level = r->skipped_level;
+     reading->cm40_left_out = r->cm40_left_out;
+diff --git a/tools/dvbridge/dvbridge_core.h b/tools/dvbridge/dvbridge_core.h
+index 428b867..596d8d5 100644
+--- a/tools/dvbridge/dvbridge_core.h
++++ b/tools/dvbridge/dvbridge_core.h
+@@ -77,6 +77,16 @@ void dvbridge_set_display_management(struct dvbridge_context *context, unsigned
+  * of level 8); true until said otherwise. Set before the frames of a stream (a frame prepared before
+  * it was made with what held then), and kept by dvbridge_reset(). */
+ void dvbridge_set_trims(struct dvbridge_context *context, bool send);
++/* Hades: how the level 5 offsets of a video's metadata reach the display (videoscreen.hadesdvl5):
++ * read and mapped to the place of the picture, the player blanking the bars and taking the edges
++ * drawn over out of them (the default, as before); sent as the RPU gives them, with nothing of the
++ * picture blanked and no edge taken out (right where the screen shows the video pixel for pixel,
++ * wrong wherever it is scaled or zoomed); or left aside, the area of the picture's place sent, as
++ * for metadata without a level 5 block. Kept as dvbridge_set_trims() is. */
++#define DVBRIDGE_L5_AUTO 0
++#define DVBRIDGE_L5_DIRECT 1
++#define DVBRIDGE_L5_IGNORE 2
++void dvbridge_set_l5(struct dvbridge_context *context, int mode);
+ /* Hades: whether a frame whose RPU has no content mapping v4.0 part is sent with dovi_tool's default one
+  * (dvbridge_dv::cm40_default in dvbridge_metadata.h); false until said otherwise. Set and kept as
+  * dvbridge_set_trims(). */
+@@ -186,6 +196,9 @@ struct dvbridge_reading {
+     /* Hades: the level 5 offsets were left aside for the video, and why (dvbridge_dv_l5() in dvbridge_metadata.h);
+      * NULL when they were not */
+     const char *l5_ignored;
++    /* Hades: the level 5 offsets are sent as the RPU gives them (videoscreen.hadesdvl5, direct);
++     * false when they were read, or left aside */
++    bool l5_direct;
+     /* Extension blocks of reserved levels, left out (a display ignores them): how many, and the
+      * level of the first one */
+     unsigned skipped, skipped_level;
+diff --git a/tools/dvbridge/dvbridge_metadata.h b/tools/dvbridge/dvbridge_metadata.h
+index e0b648c..ac19f53 100644
+--- a/tools/dvbridge/dvbridge_metadata.h
++++ b/tools/dvbridge/dvbridge_metadata.h
+@@ -10,6 +10,7 @@
+  */
+ #ifndef MPV_DVBRIDGE_DV_H
+ #define MPV_DVBRIDGE_DV_H
++#include "dvbridge_core.h"
+ #include "dvbridge_ipt.h"
+ #include "dvbridge_limits.h"
+ #include <stdint.h>
+@@ -38,6 +39,8 @@ struct dvbridge_dv_reading {
+     unsigned as_given[4]; /* the margins they make as offsets of the picture; 0 when they do not fit it */
+     /* Hades: the level 5 offsets were left aside for the video, and why (dvbridge_dv_l5()); NULL when not */
+     const char *l5_ignored;
++    /* Hades: the level 5 offsets are sent as the RPU gives them (videoscreen.hadesdvl5, direct) */
++    bool l5_direct;
+     /* Extension blocks of a level that CCM 001 reserves, which a display ignores: left out. */
+     unsigned skipped, skipped_level;
+     /* Hades: blocks of the content mapping v4.0 part of the metadata (levels 3, 8 to 11 and 254),
+@@ -117,6 +120,12 @@ struct dvbridge_dv {
+      * left out, and those of level 10, which only describe the targets of level 8 blocks. Kept from
+      * one stream to the next (dvbridge_dv_restart()): it is the display's, not the stream's. */
+     bool no_trims;
++    /* Hades: how the level 5 offsets reach the display (videoscreen.hadesdvl5, DVBRIDGE_L5_* in
++     * dvbridge_core.h): the automatic reading maps them to the place of the picture; direct sends
++     * them as the RPU gives them and blanks nothing; ignore leaves them aside, as for metadata
++     * without a level 5 block. Kept from one stream to the next (dvbridge_dv_restart()), as
++     * no_trims. */
++    int l5_mode;
+     /* Hades: cm40_default, a frame whose RPU has no content mapping v4.0 part at all is sent with the one
+      * that dovi_tool adds as its "safe" default (add_cmv4_default_metadata, CmV40DmData::default_safe():
+      * level 3 with no offsets, level 9 DCI-P3 D65, level 11 cinema with a D65 white point and no
+@@ -384,6 +393,19 @@ static inline bool dvbridge_dv_l5(struct dvbridge_dv *d, unsigned l, unsigned r,
+ {
+     d->reading.l5_ignored = NULL;
+     const unsigned offsets[4] = {l, r, t, b};
++    /* Hades: the setting leaves the offsets aside (videoscreen.hadesdvl5): whatever they are, this
++     * video's frames go out as metadata without a level 5 block. The decision is the setting's,
++     * not the video's (dvbridge_dv_ignore_l5_of() is not made), so a change of the setting back
++     * takes the offsets as they are. */
++    if (d->l5_mode == DVBRIDGE_L5_IGNORE) {
++        if (!dvbridge_dv_margins(d, 0, 0, 0, 0, v))
++            return false; /* (d->refused says why) */
++        memcpy(d->reading.l5, offsets, sizeof(offsets));
++        d->reading.l5_master = false;
++        d->reading.l5_ignored = "the setting videoscreen.hadesdvl5 leaves the level 5 offsets aside";
++        d->refused = NULL;
++        return true;
++    }
+     if (!dvbridge_dv_l5_ignored(d, offsets)) {
+         if (dvbridge_dv_margins(d, l, r, t, b, v))
+             return true;
+@@ -473,6 +495,7 @@ static inline void dvbridge_dv_restart(struct dvbridge_dv *d)
+     const unsigned id = d->id;
+     const bool no_trims = d->no_trims, cm40_default = d->cm40_default, cm40_auto = d->cm40_auto,
+                cm40_auto_no_trims = d->cm40_auto_no_trims;
++    const int l5_mode = d->l5_mode;
+     const unsigned cm40_auto_peak_pq = d->cm40_auto_peak_pq;
+     /* (Hades: the decision of the automatic choice is of the video, not of the stream of native output) */
+     const bool cm40_auto_decided = d->cm40_auto_decided, cm40_auto_on = d->cm40_auto_on,
+@@ -497,6 +520,7 @@ static inline void dvbridge_dv_restart(struct dvbridge_dv *d)
+     d->cm40_menus = cm40_menus;
+     d->id = id;
+     d->no_trims = no_trims;
++    d->l5_mode = l5_mode;
+     d->cm40_default = cm40_default;
+     d->cm40_auto = cm40_auto;
+     d->cm40_auto_no_trims = cm40_auto_no_trims;
+@@ -641,6 +665,7 @@ static inline bool dvbridge_dv_metadata(struct dvbridge_dv *d, const AVDOVIMetad
+     }
+     d->reading.skipped = d->reading.skipped_level = 0;
+     d->reading.l5_ignored = NULL;
++    d->reading.l5_direct = false;
+     d->reading.cm40_left_out = d->reading.cm40_dropped = d->reading.cm40_added = 0;
+     /* 6.2.1 table 3: dm_metadata() */
+     d->size = 0;
+@@ -782,6 +807,22 @@ static inline bool dvbridge_dv_metadata(struct dvbridge_dv *d, const AVDOVIMetad
+             DV_REFUSE(area == 1, "two level 5 blocks");
+             DV_REFUSE(l1 == 1,
+                       l1 ? "two level 1 blocks" : "a level 5 block without a level 1 block");
++            /* Hades: the offsets sent as the RPU gives them (videoscreen.hadesdvl5, direct): the
++             * margins are the picture's place (nothing of the picture is blanked), no edge is
++             * taken out, and the offsets are not read: they describe the canvas the RPU was made
++             * for, which the output is only where it shows the video pixel for pixel. */
++            if (d->l5_mode == DVBRIDGE_L5_DIRECT) {
++                if (!dvbridge_dv_margins(d, 0, 0, 0, 0, v))
++                    return false; /* (d->refused says why) */
++                memcpy(d->margins, v, sizeof(d->margins));
++                v[0] = e->l5.left_offset; v[1] = e->l5.right_offset;
++                v[2] = e->l5.top_offset; v[3] = e->l5.bottom_offset;
++                memcpy(d->reading.l5, v, sizeof(d->reading.l5));
++                memset(d->reading.as_given, 0, sizeof(d->reading.as_given));
++                d->reading.l5_master = false;
++                d->reading.l5_direct = true;
++                break;
++            }
+             if (!dvbridge_dv_l5(d, e->l5.left_offset, e->l5.right_offset, e->l5.top_offset,
+                                 e->l5.bottom_offset, v))
+                 return false; /* (d->refused says why) */
+diff --git a/tools/dvbridge/dvbridge_render.c b/tools/dvbridge/dvbridge_render.c
+index c706007..e614e46 100644
+--- a/tools/dvbridge/dvbridge_render.c
++++ b/tools/dvbridge/dvbridge_render.c
+@@ -44,6 +44,7 @@ enum {
+     NOTE_HDR10PLUS_STATISTICS = 32768,
+     NOTE_HDR10PLUS_LL_FAILED = 65536,
+     NOTE_TRIM_OFF = 131072,
++    NOTE_L5_DIRECT = 262144,
+ };
+ 
+ /* Hades: the bridge's own passes that are timed (dvbridge_render_time_passes()), each with a few
+@@ -807,6 +808,7 @@ bool dvbridge_render_take_notes(struct dvbridge_renderer *r, struct dvbridge_ren
+     *notes = r->notes;
+     notes->l5_master = r->fresh & NOTE_L5_MASTER;
+     notes->l5_ignored = r->fresh & NOTE_L5_IGNORED;
++    notes->l5_direct = r->fresh & NOTE_L5_DIRECT;
+     notes->level_skipped = r->fresh & NOTE_LEVEL_SKIPPED;
+     notes->bl_depth = r->fresh & NOTE_BL_DEPTH;
+     notes->el_depth = r->fresh & NOTE_EL_DEPTH;
+@@ -1068,6 +1070,8 @@ static void note_reading(struct dvbridge_renderer *r)
+             fresh = note(r, NOTE_L5_MASTER) || fresh;
+         if (reading.l5_ignored)
+             fresh = note(r, NOTE_L5_IGNORED) || fresh;
++        if (reading.l5_direct)
++            fresh = note(r, NOTE_L5_DIRECT) || fresh;
+         if (reading.skipped)
+             fresh = note(r, NOTE_LEVEL_SKIPPED) || fresh;
+         if (reading.cm40_dropped)
+@@ -3748,6 +3752,12 @@ void dvbridge_render_send_trims(struct dvbridge_renderer *r, bool send)
+         dvbridge_set_trims(r->context, send);
+ }
+ 
++void dvbridge_render_set_l5(struct dvbridge_renderer *r, int mode)
++{
++    if (r)
++        dvbridge_set_l5(r->context, mode);
++}
++
+ void dvbridge_render_add_cm40_default(struct dvbridge_renderer *r, bool add)
+ {
+     if (r)
+diff --git a/tools/dvbridge/dvbridge_render.h b/tools/dvbridge/dvbridge_render.h
+index 6218e30..9428239 100644
+--- a/tools/dvbridge/dvbridge_render.h
++++ b/tools/dvbridge/dvbridge_render.h
+@@ -57,6 +57,9 @@ struct dvbridge_render_notes {
+     bool l5_master;     /* level 5 offsets read as those of a 3840x2160 master (reading) */
+     /* Hades: the level 5 offsets of the video left aside (reading: l5, l5_ignored, margins) */
+     bool l5_ignored;
++    /* Hades: the level 5 offsets are sent as the RPU gives them (reading: l5_direct;
++     * videoscreen.hadesdvl5, direct) */
++    bool l5_direct;
+     bool level_skipped; /* extension blocks of reserved levels left out (reading) */
+     /* Hades: the content mapping v4.0 part of the metadata cannot be carried in this stream and is
+      * left out from here on (reading: cm40_why, cm40_level, cm40_length) */
+@@ -608,6 +611,9 @@ bool dvbridge_render_rows_computed(const struct dvbridge_renderer *renderer);
+ /* Hades: whether the display is sent the trims of the metadata (dvbridge_set_trims()); true by
+  * default */
+ void dvbridge_render_send_trims(struct dvbridge_renderer *renderer, bool send);
++/* Hades: how the level 5 offsets of a video's metadata reach the display (dvbridge_set_l5();
++ * videoscreen.hadesdvl5) */
++void dvbridge_render_set_l5(struct dvbridge_renderer *renderer, int mode);
+ /* Hades: whether a frame whose RPU has no content mapping v4.0 part is sent with dovi_tool's default one
+  * (dvbridge_set_cm40_default()); false by default */
+ void dvbridge_render_add_cm40_default(struct dvbridge_renderer *renderer, bool add);
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+index dec575a..646df8d 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.cpp
+@@ -675,6 +675,8 @@ bool CDVBridgeGLES::Initialize(bool allowSoftware)
+   dvbridge_render_set_display_management(m_renderer, m_displayManagement);
+   // ... and whether the display is sent the trims (SendTrims())
+   dvbridge_render_send_trims(m_renderer, m_trimsWanted);
++  // Hades: and how the level 5 offsets reach the display (UseL5Mode())
++  dvbridge_render_set_l5(m_renderer, m_l5ModeWanted);
+   pl_opengl_wrap_params output{};
+   output.width = 3840;
+   output.height = 2160;
+@@ -1116,7 +1118,14 @@ void CDVBridgeGLES::LogNotes()
+               r.as_given[0] + r.as_given[1] + r.as_given[2] + r.as_given[3] == 0
+                   ? ", which do not fit it"
+                   : "");
+-  if (notes.l5_ignored)
++  if (notes.l5_ignored && m_l5ModeWanted == DVBRIDGE_L5_IGNORE)
++    CLog::Log(LOGINFO,
++              "DVBridge: the level 5 offsets of this video ({} {} {} {}) are left aside "
++              "(videoscreen.hadesdvl5): its frames go out with the active area of the picture's "
++              "place (blanking margins {} {} {} {}), and nothing of the picture is blanked as bars",
++              r.l5[0], r.l5[1], r.l5[2], r.l5[3], r.margins[0], r.margins[1], r.margins[2],
++              r.margins[3]);
++  else if (notes.l5_ignored)
+     CLog::Log(LOGWARNING,
+               "DVBridge: the level 5 offsets of this video ({} {} {} {}) cannot describe its "
+               "picture: {}. They are left aside for the rest of the video: its frames go out with "
+@@ -1124,6 +1133,12 @@ void CDVBridgeGLES::LogNotes()
+               "of the picture is blanked as bars",
+               r.l5[0], r.l5[1], r.l5[2], r.l5[3], r.l5_ignored ? r.l5_ignored : "", r.margins[0],
+               r.margins[1], r.margins[2], r.margins[3]);
++  if (notes.l5_direct)
++    CLog::Log(LOGINFO,
++              "DVBridge: the level 5 offsets of this video ({} {} {} {}) are sent as the RPU "
++              "gives them (videoscreen.hadesdvl5): nothing of the picture is blanked as bars, and "
++              "no edge is taken out of them",
++              r.l5[0], r.l5[1], r.l5[2], r.l5[3]);
+   if (notes.level_skipped)
+     CLog::Log(LOGINFO,
+               "DVBridge: extension blocks of a level that CCM 001 reserves are left out of the "
+@@ -1952,6 +1967,12 @@ void CDVBridgeGLES::SendTrims(bool send)
+   dvbridge_render_send_trims(m_renderer, send);
+ }
+ 
++void CDVBridgeGLES::UseL5Mode(int mode)
++{
++  m_l5ModeWanted = mode;
++  dvbridge_render_set_l5(m_renderer, mode);
++}
++
+ unsigned int CDVBridgeGLES::TakeL1Changes()
+ {
+   const unsigned int changes = m_l1Changes;
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+index 452d313..a3d0d6f 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/DVBridgeGLES.h
+@@ -437,6 +437,9 @@ public:
+   //! Hades: whether the display is sent the trims of the metadata (levels 2 and 8, and 10) from
+   //! the next frame on (dvbridge_render_send_trims()); true until said otherwise
+   void SendTrims(bool send);
++  //! Hades: how the level 5 offsets of a video's metadata reach the display from the next frame on
++  //! (dvbridge_render_set_l5(), DVBRIDGE_L5_*): automatic until said otherwise
++  void UseL5Mode(int mode);
+   //! The prepared frame goes out in the source transport
+   bool SourceTransport() const { return m_prepared && m_pendingDetail.transport == 0; }
+ 
+@@ -729,6 +732,7 @@ private:
+   bool m_llPattern = false;
+   dvbridge_hdr10_mapping m_lowLatency{};
+   bool m_trimsWanted = true; //!< Hades: see SendTrims()
++  int m_l5ModeWanted = DVBRIDGE_L5_AUTO; //!< Hades: see UseL5Mode()
+   const char* m_sourceWhyLogged = nullptr; //!< why a frame went out converted, last logged
+   //! Hades: the reasons of refused metadata and of frames not drawn logged in this stream
+   //! (LogWhy()), up to eight
+diff --git a/xbmc/settings/Settings.h b/xbmc/settings/Settings.h
+index 1b2073a..00160f8 100644
+--- a/xbmc/settings/Settings.h
++++ b/xbmc/settings/Settings.h
+@@ -517,6 +517,11 @@ public:
+   //! projectors); from the next video (CDVEngineSettings::trims). On, it also keeps the trims out
+   //! of the trim pass where Hades maps the picture (SETTING_VIDEOSCREEN_HADESDVTRIMPASS)
+   static constexpr auto SETTING_VIDEOSCREEN_HADESDVNOTRIMS = "videoscreen.hadesdvnotrims";
++  //! Hades: how the level 5 offsets (the active area) of a video's metadata reach the display:
++  //! automatic reads them and describes the picture as it is placed on the screen (the default);
++  //! direct sends them as the RPU gives them and blanks nothing; left aside sends the area of the
++  //! picture's place; from the next video (CDVEngineSettings::l5)
++  static constexpr auto SETTING_VIDEOSCREEN_HADESDVL5 = "videoscreen.hadesdvl5";
+   //! Hades: the trim pass (level 2) where Hades maps Dolby Vision to the display itself (HDR10
+   //! adapted to it, SDR, Low-Latency); off by default (tools/dvbridge/dvbridge_trims.h says
+   //! why), nothing where SETTING_VIDEOSCREEN_HADESDVNOTRIMS is on; from the next video
+diff --git a/xbmc/windowing/gbm/DVEngineSettings.h b/xbmc/windowing/gbm/DVEngineSettings.h
+index 66bed2c..3adbc2c 100644
+--- a/xbmc/windowing/gbm/DVEngineSettings.h
++++ b/xbmc/windowing/gbm/DVEngineSettings.h
+@@ -96,6 +96,8 @@ struct CDVEngineSettings
+     bool keepRepeats = true;
+     //! videoscreen.hadesdvnotrims, the other way round
+     bool trims = true;
++    //! videoscreen.hadesdvl5: automatic (0), direct (1), left aside (2)
++    int l5 = 0;
+     //! videoscreen.hadesdvgamutfine
+     bool fineGamut = false;
+   };
+@@ -124,6 +126,10 @@ struct CDVEngineSettings
+   //! 8): a setting of the Dolby Vision group (videoscreen.hadesdvnotrims), not of the engine, that
+   //! a native output takes with them when it starts
+   bool trims = true;
++  //! how the level 5 offsets of a video's metadata reach the display (DVBRIDGE_L5_*): a setting of
++  //! the Dolby Vision group (videoscreen.hadesdvl5), not of the engine, that a native output takes
++  //! with them when it starts
++  int l5 = 0;
+   //! the finer table of the gamut mapping, for a picture mapped to the display (Low-Latency):
+   //! videoscreen.hadesdvgamutfine (CDVBridgeGLES::UseGamutTable())
+   bool fineGamut = false;
+@@ -166,6 +172,7 @@ struct CDVEngineSettings
+     s.keepRepeats = read.keepRepeats && advanced.keepRepeats;
+     s.keepRepeatsByAdvanced = !advanced.keepRepeats;
+     s.trims = read.trims;
++    s.l5 = read.l5;
+     s.fineGamut = read.fineGamut;
+     return s;
+   }
+@@ -217,6 +224,9 @@ struct CDVEngineSettings
+       text += " (advancedsettings.xml: dvkeeprepeats)";
+     if (!trims)
+       text += "; the display is sent no trims (levels 2, 8 and 10 of the metadata left out)";
++    if (l5 != 0) // Hades: videoscreen.hadesdvl5 (DVBRIDGE_L5_*): 1 direct, 2 left aside
++      text += l5 == 1 ? "; the level 5 offsets of the metadata sent as the RPU gives them"
++                      : "; the level 5 offsets of the metadata left aside";
+     if (fineGamut)
+       text += "; the finer gamut mapping table where a picture is mapped (Low-Latency)";
+     if (!PathKept() || !StepKept())
+diff --git a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+index 86af58d..f572358 100644
+--- a/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbmGLESContext.cpp
+@@ -617,7 +617,12 @@ void CWinSystemGbmGLESContext::PresentRender(bool rendered, bool videoLayer)
+       ahead = DVAheadWanted() &&
+               m_modeAnnounce.Pending() != CHeldModeAnnouncement::Step::BEFORE_NEXT;
+       aheadAsked = true;
+-      cover = ahead ? CDVBridgeGLES::Cover::BARS : CDVBridgeGLES::Cover::MEASURE;
++      // Hades: the level 5 setting that is not the automatic reading (videoscreen.hadesdvl5) takes
++      // no edge out: nothing of the picture is blanked in the direct mode, and the area sent in
++      // the left-aside one is the picture's place, whose edges have no bars to take
++      cover = m_dvEngine.l5 == DVBRIDGE_L5_AUTO
++                  ? (ahead ? CDVBridgeGLES::Cover::BARS : CDVBridgeGLES::Cover::MEASURE)
++                  : CDVBridgeGLES::Cover::NONE;
+       // Hades: the frame that would take every edge with bars (a frame ahead; the fold of the GUI
+       // into the pack, whose blend nothing can measure) takes its edges per edge instead where
+       // the rectangles of what the GUI occupies are fresh: an edge that none of them reaches
+@@ -6031,6 +6036,9 @@ void CWinSystemGbmGLESContext::DVEngineRead()
+   // Hades: and whether the display is sent the trims (the Dolby Vision group of the settings)
+   read.trims = !settings || !settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_HADESDVNOTRIMS) ||
+                !settings->GetBool(CSettings::SETTING_VIDEOSCREEN_HADESDVNOTRIMS);
++  // Hades: and how the level 5 offsets of a video's metadata reach the display (automatic, direct,
++  // left aside)
++  read.l5 = integer(CSettings::SETTING_VIDEOSCREEN_HADESDVL5);
+   read.fineGamut = BoolSetting(settings, CSettings::SETTING_VIDEOSCREEN_HADESDVGAMUTFINE, false);
+   // (Hades: the fast mode of the mapping (videoscreen.hadesdtmfast) reads its own fidelity,
+   // composition and gamut mapping table in the place of the preset's, while the mapping
+@@ -6065,6 +6073,7 @@ void CWinSystemGbmGLESContext::DVEngineRead()
+     m_dvBridge->UseSourceTransport(m_dvEngine.sourceTransport);
+     m_dvBridge->UseIpt(m_dvEngine.ipt);
+     m_dvBridge->SendTrims(m_dvEngine.trims);
++    m_dvBridge->UseL5Mode(m_dvEngine.l5);
+     m_dvBridge->UseGamutTable(m_dvEngine.fineGamut);
+   }
+   // in the log the first time, and when they change
+@@ -6277,6 +6286,10 @@ void CWinSystemGbmGLESContext::DVCheckL5(const CDVBridgeGLES::Layer& layer,
+   // picture)
+   if (layer.baseTransfer == DVBRIDGE_BASE_HLG_TO_PQ)
+     return;
++  // (Hades: and not one of a level 5 setting that reads its offsets itself: the direct mode sends
++  // them as the RPU gives them and the left-aside one leaves them aside, whatever the picture is)
++  if (m_dvEngine.l5 != DVBRIDGE_L5_AUTO)
++    return;
+   dvbridge_l5check_video(&m_dvL5Check, layer.video);
+   unsigned int bars[4], offsets[4];
+   if (!m_dvFrame || skip || layer.layout != DVBRIDGE_P010 || m_dvL5MeasureFailed || !m_dvBridge ||
+@@ -8756,9 +8769,13 @@ void CWinSystemGbmGLESContext::PublishDVInfo(bool force)
+       info["hades.dv.notsent"] = held.empty() ? "none" : DescribeLevels(held);
+       info["hades.dv.l5sent"] = StringUtils::Format("{} / {} / {} / {}", d.sentL5[0],
+                                                     d.sentL5[1], d.sentL5[2], d.sentL5[3]);
+-      // the active area that the display is sent: from the RPU's L5, or made from the place of
+-      // the picture when the RPU has none
+-      info["hades.dv.l5origin"] = d.sentL5Drawn ? "drawn" : d.l5[0] >= 0 ? "rpu" : "picture";
++      // the active area that the display is sent: from the RPU's L5, made from the place of
++      // the picture when the RPU has none, or always the picture's place when the level 5
++      // offsets are left aside
++      info["hades.dv.l5origin"] = d.sentL5Drawn ? "drawn"
++                                  : m_dvEngine.l5 == DVBRIDGE_L5_IGNORE ? "picture"
++                                  : d.l5[0] >= 0 ? "rpu"
++                                                 : "picture";
+     }
+     // Hades: and what every level of the RPU says, with the table of the levels (the page of the
+     // Dolby Vision metadata of the player information). Low-Latency (transport 3) is mapped to the
+-- 
+2.43.0
+
