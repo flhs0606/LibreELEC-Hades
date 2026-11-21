@@ -1,0 +1,451 @@
+From: Hades <15710513+hadesdevls@users.noreply.github.com>
+Subject: [PATCH] dvdvideocodecffmpeg: reuse active hardware decoder on identical get_format
+
+When decoding HEVC bitstreams with in-band parameter sets (e.g. Dolby
+Vision Profile 5 streams where every GOP carries VPS/PPS with varying
+trailer metadata), FFmpeg invalidates parameter sets and calls get_format()
+periodically (every ~5 seconds). Kodi unconditionally destroyed and
+reallocated the active hardware decoder, causing heavy surface allocation
+churn, DMA-BUF identity cache thrashing, and dropping all in-flight reference
+frames across decoder generations.
+
+This patch adds Reopen() to IHardwareDecoder and implements it for VAAPI.
+When get_format() is requested with compatible parameters (matching
+dimensions, bit depth, and profile), the existing VAAPI decoder context
+and surface pool are reused directly. Only a new AVHWFramesContext referencing
+the existing surface pool is attached to the AVCodecContext, eliminating
+playback stutter without reallocating hardware surfaces or dropping frames.
+
+diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h
+@@ -377,6 +377,7 @@ public:
+   IHardwareDecoder() = default;
+   ~IHardwareDecoder() override = default;
+   virtual bool Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum AVPixelFormat) = 0;
++  virtual bool Reopen(AVCodecContext* avctx, AVCodecContext* mainctx, const enum AVPixelFormat fmt) { return false; }
+   virtual CDVDVideoCodec::VCReturn Decode(AVCodecContext* avctx, AVFrame* frame) = 0;
+   virtual bool GetPicture(AVCodecContext* avctx, VideoPicture* picture) = 0;
+   virtual CDVDVideoCodec::VCReturn Check(AVCodecContext* avctx) = 0;
+diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecFFmpeg.cpp
+@@ -340,6 +340,18 @@ enum AVPixelFormat CDVDVideoCodecFFmpeg::GetFormat(struct AVCodecContext * avctx
+   // hardware decoder de-selected, restore standard ffmpeg
+   if (ctx->HasHardware())
+   {
++    const AVPixelFormat* cur = fmt;
++    while (*cur != AV_PIX_FMT_NONE)
++    {
++      if (ctx->m_pHardware->Reopen(avctx, ctx->m_pCodecContext, *cur))
++      {
++        pixFmtName = av_get_pix_fmt_name(*cur);
++        ctx->m_processInfo.SetVideoPixelFormat(pixFmtName ? pixFmtName : "");
++        return *cur;
++      }
++      cur++;
++    }
++
+     ctx->SetHardware(nullptr);
+     avctx->get_buffer2 = avcodec_default_get_buffer2;
+     avctx->slice_flags = 0;
+diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/VAAPI.h b/xbmc/cores/VideoPlayer/DVDCodecs/Video/VAAPI.h
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/VAAPI.h
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/VAAPI.h
+@@ -25,6 +25,7 @@
+ #include <map>
+ #include <memory>
+ #include <mutex>
++#include <optional>
+ #include <set>
+ #include <string>
+ #include <utility>
+@@ -555,6 +556,7 @@ public:
+   ~CDecoder() override;
+ 
+   bool Open (AVCodecContext* avctx, AVCodecContext* mainctx, const enum AVPixelFormat) override;
++  bool Reopen(AVCodecContext* avctx, AVCodecContext* mainctx, const enum AVPixelFormat fmt) override;
+   CDVDVideoCodec::VCReturn Decode (AVCodecContext* avctx, AVFrame* frame) override;
+   bool GetPicture(AVCodecContext* avctx, VideoPicture* picture) override;
+   void Reset() override;
+@@ -587,6 +589,8 @@ protected:
+   void ReturnRenderPicture(CVaapiRenderPicture *renderPic);
+   long ReleasePicReference();
+   bool CheckSuccess(VAStatus status, const std::string& function);
++  int GetChromaSubsampling(const AVCodecContext* avctx);
++  std::optional<VAProfile> DetermineProfile(AVCodecContext* avctx, int bitDepth);
+ 
+   enum EDisplayState
+   { VAAPI_OPEN
+diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/VAAPI.cpp b/xbmc/cores/VideoPlayer/DVDCodecs/Video/VAAPI.cpp
+index fa84d04..f8b09d6 100644
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/VAAPI.cpp
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/VAAPI.cpp
+@@ -617,19 +617,7 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
+   m_presentPicture = nullptr;
+   m_getBufferError = 0;
+ 
+-  // Bitstream chroma subsampling, used by HEVC and VP9 dispatch below to
+-  // pick the right VA profile. log2_chroma_{w,h} encodes the subsampling
+-  // factor: (1,1) = 4:2:0, (1,0) = 4:2:2, (0,0) = 4:4:4.
+-  int chroma = 0;
+-  if (const AVPixFmtDescriptor* d = av_pix_fmt_desc_get(avctx->pix_fmt))
+-  {
+-    if (d->log2_chroma_w == 1 && d->log2_chroma_h == 1)
+-      chroma = 420;
+-    else if (d->log2_chroma_w == 1 && d->log2_chroma_h == 0)
+-      chroma = 422;
+-    else if (d->log2_chroma_w == 0 && d->log2_chroma_h == 0)
+-      chroma = 444;
+-  }
++  int chroma = GetChromaSubsampling(avctx);
+ 
+   auto declineUnsupported = [&]
+   {
+@@ -638,128 +626,7 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
+     return false;
+   };
+ 
+-  std::optional<VAProfile> profile;
+-  switch (avctx->codec_id)
+-  {
+-    case AV_CODEC_ID_MPEG2VIDEO:
+-      profile = VAProfileMPEG2Main;
+-      break;
+-    case AV_CODEC_ID_MPEG4:
+-    case AV_CODEC_ID_H263:
+-      profile = VAProfileMPEG4AdvancedSimple;
+-      break;
+-    case AV_CODEC_ID_H264:
+-    {
+-      if (avctx->profile == AV_PROFILE_H264_CONSTRAINED_BASELINE)
+-        profile = VAProfileH264ConstrainedBaseline;
+-#if VA_CHECK_VERSION(1, 18, 0)
+-      else if (avctx->profile == AV_PROFILE_H264_HIGH_10 && m_vaapiConfig.bitDepth == 10 &&
+-               m_capFormats.Supports(AV_PIX_FMT_P010))
+-        profile = VAProfileH264High10;
+-#endif
+-      // Prefer Main when the driver has it, otherwise High (a superset of Main).
+-      else if (avctx->profile == AV_PROFILE_H264_MAIN &&
+-               m_vaapiConfig.context->SupportsProfile(VAProfileH264Main))
+-        profile = VAProfileH264Main;
+-      else
+-        profile = VAProfileH264High;
+-      break;
+-    }
+-    case AV_CODEC_ID_HEVC:
+-    {
+-      // VAAPI HEVC profile naming: VAProfileHEVCMain<N> is N-bit 4:2:0,
+-      // VAProfileHEVCMain422_<N> is N-bit 4:2:2.
+-      if (avctx->profile == AV_PROFILE_HEVC_MAIN_10 && m_capFormats.Supports(AV_PIX_FMT_P010))
+-        profile = VAProfileHEVCMain10;
+-      else if (avctx->profile == AV_PROFILE_HEVC_MAIN)
+-        profile = VAProfileHEVCMain;
+-      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 12 &&
+-               chroma == 420 &&
+-               (m_capFormats.Supports(AV_PIX_FMT_P012) || m_capFormats.Supports(AV_PIX_FMT_P016)))
+-        profile = VAProfileHEVCMain12;
+-      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 10 &&
+-               chroma == 422 && m_capFormats.Supports(AV_PIX_FMT_Y210))
+-        profile = VAProfileHEVCMain422_10;
+-      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 12 &&
+-               chroma == 422 &&
+-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 45, 100)
+-               (m_capFormats.Supports(AV_PIX_FMT_Y212) || m_capFormats.Supports(AV_PIX_FMT_Y216)))
+-#else
+-               m_capFormats.Supports(AV_PIX_FMT_Y212))
+-#endif
+-        profile = VAProfileHEVCMain422_12;
+-      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 8 &&
+-               chroma == 444 &&
+-               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
+-        profile = VAProfileHEVCMain444;
+-      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 10 &&
+-               chroma == 444 && m_capFormats.Supports(AV_PIX_FMT_XV30))
+-        profile = VAProfileHEVCMain444_10;
+-      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 12 &&
+-               chroma == 444 &&
+-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 46, 100)
+-               (m_capFormats.Supports(AV_PIX_FMT_XV36) || m_capFormats.Supports(AV_PIX_FMT_XV48)))
+-#else
+-               m_capFormats.Supports(AV_PIX_FMT_XV36))
+-#endif
+-        profile = VAProfileHEVCMain444_12;
+-      break;
+-    }
+-    case AV_CODEC_ID_VP8:
+-      profile = VAProfileVP8Version0_3;
+-      break;
+-    case AV_CODEC_ID_VP9:
+-    {
+-      // VP9 profiles vary chroma subsampling and bit depth orthogonally:
+-      //   Profile 0: 4:2:0  8-bit
+-      //   Profile 1: 4:2:2 / 4:4:4  8-bit
+-      //   Profile 2: 4:2:0  10/12-bit
+-      //   Profile 3: 4:2:2 / 4:4:4  10/12-bit
+-      // VAAPI does not split by chroma; the VP9 profile constants cover both
+-      // 4:2:2 and 4:4:4 inside Profile 1 / Profile 3, with the surface fourcc
+-      // selected per the actual content's pix_fmt. Intel iHD only produces
+-      // 4:4:4 surfaces for VP9 1/3, so 4:2:2 VP9 falls through to SW.
+-      if (avctx->profile == AV_PROFILE_VP9_0)
+-        profile = VAProfileVP9Profile0;
+-      else if (avctx->profile == AV_PROFILE_VP9_2)
+-        profile = VAProfileVP9Profile2;
+-      else if (avctx->profile == AV_PROFILE_VP9_1 && chroma == 444 &&
+-               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
+-        profile = VAProfileVP9Profile1;
+-      else if (avctx->profile == AV_PROFILE_VP9_3 && chroma == 444 &&
+-               ((m_vaapiConfig.bitDepth == 10 && m_capFormats.Supports(AV_PIX_FMT_XV30)) ||
+-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 46, 100)
+-                (m_vaapiConfig.bitDepth == 12 && (m_capFormats.Supports(AV_PIX_FMT_XV36) ||
+-                                                  m_capFormats.Supports(AV_PIX_FMT_XV48)))))
+-#else
+-                (m_vaapiConfig.bitDepth == 12 && (m_capFormats.Supports(AV_PIX_FMT_XV36)))))
+-#endif
+-        profile = VAProfileVP9Profile3;
+-      break;
+-    }
+-    case AV_CODEC_ID_WMV3:
+-      profile = VAProfileVC1Main;
+-      break;
+-    case AV_CODEC_ID_VC1:
+-      profile = VAProfileVC1Advanced;
+-      break;
+-    case AV_CODEC_ID_AV1:
+-    {
+-      // AV1 Profile 1 is 4:4:4 only per spec, 8 or 10-bit. Intel iHD (Xe3+)
+-      // outputs AYUV (8-bit) or Y410 (10-bit) for this profile.
+-      if (avctx->profile == AV_PROFILE_AV1_MAIN)
+-        profile = VAProfileAV1Profile0;
+-      else if (avctx->profile == AV_PROFILE_AV1_HIGH && m_vaapiConfig.bitDepth == 8 &&
+-               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
+-        profile = VAProfileAV1Profile1;
+-      else if (avctx->profile == AV_PROFILE_AV1_HIGH && m_vaapiConfig.bitDepth == 10 &&
+-               m_capFormats.Supports(AV_PIX_FMT_XV30))
+-        profile = VAProfileAV1Profile1;
+-      break;
+-    }
+-    default:
+-      return false;
+-  }
++  std::optional<VAProfile> profile = DetermineProfile(avctx, m_vaapiConfig.bitDepth);
+ 
+   if (!profile || !m_vaapiConfig.context->SupportsProfile(*profile))
+     return declineUnsupported();
+@@ -887,6 +754,216 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
+   return true;
+ }
+ 
++bool CDecoder::Reopen(AVCodecContext* avctx, AVCodecContext* mainctx, const enum AVPixelFormat fmt)
++{
++  if (fmt != AV_PIX_FMT_VAAPI)
++    return false;
++
++  std::unique_lock lock(m_DecoderSection);
++
++  if (m_DisplayState != VAAPI_OPEN || !m_vaapiConfigured || !m_deviceRef)
++    return false;
++
++  if (avctx->coded_width <= 0 || avctx->coded_height <= 0)
++    return false;
++
++  if (m_vaapiConfig.surfaceWidth != avctx->coded_width ||
++      m_vaapiConfig.surfaceHeight != avctx->coded_height)
++    return false;
++
++  int bitDepth = VAAPI::StreamBitDepth(*avctx);
++  if (m_vaapiConfig.bitDepth != bitDepth)
++    return false;
++
++  std::optional<VAProfile> profile = DetermineProfile(avctx, bitDepth);
++  if (!profile || *profile != m_vaapiConfig.profile)
++    return false;
++
++  if (m_videoSurfaces.Size() <= 0)
++    return false;
++
++  AVBufferRef* framesRef = av_hwframe_ctx_alloc(m_deviceRef.get());
++  if (!framesRef)
++  {
++    CLog::Log(LOGERROR, "VAAPI::Reopen - failed to allocate hwframe ctx");
++    return false;
++  }
++
++  AVHWFramesContext* framesCtx = reinterpret_cast<AVHWFramesContext*>(framesRef->data);
++  AVVAAPIFramesContext* vaapiFramesCtx = reinterpret_cast<AVVAAPIFramesContext*>(framesCtx->hwctx);
++
++  vaapiFramesCtx->nb_attributes = 0;
++  vaapiFramesCtx->nb_surfaces = m_videoSurfaces.Size();
++  VASurfaceID* surfaceIds = static_cast<VASurfaceID*>(av_malloc(vaapiFramesCtx->nb_surfaces * sizeof(VASurfaceID)));
++  if (!surfaceIds)
++  {
++    av_buffer_unref(&framesRef);
++    return false;
++  }
++
++  for (int i = 0; i < vaapiFramesCtx->nb_surfaces; ++i)
++    surfaceIds[i] = m_videoSurfaces.GetAtIndex(i);
++
++  vaapiFramesCtx->surface_ids = surfaceIds;
++  framesCtx->format = AV_PIX_FMT_VAAPI;
++  framesCtx->width = avctx->coded_width;
++  framesCtx->height = avctx->coded_height;
++
++  av_buffer_unref(&avctx->hw_frames_ctx);
++  avctx->hw_frames_ctx = framesRef;
++  avctx->get_buffer2 = CDecoder::FFGetBuffer;
++  avctx->slice_flags = SLICE_FLAG_CODED_ORDER | SLICE_FLAG_ALLOW_FIELD;
++
++  if (avctx->width > 0 && avctx->height > 0)
++  {
++    m_vaapiConfig.vidWidth = avctx->width;
++    m_vaapiConfig.vidHeight = avctx->height;
++    m_vaapiConfig.outWidth = avctx->width;
++    m_vaapiConfig.outHeight = avctx->height;
++  }
++  if (avctx->sample_aspect_ratio.num > 0 && avctx->sample_aspect_ratio.den > 0)
++  {
++    m_vaapiConfig.aspect = avctx->sample_aspect_ratio;
++  }
++
++  CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI::Reopen - successfully reused active decoder ({}x{}, profile {})",
++            avctx->coded_width, avctx->coded_height, static_cast<int>(m_vaapiConfig.profile));
++  return true;
++}
++
++int CDecoder::GetChromaSubsampling(const AVCodecContext* avctx)
++{
++  if (const AVPixFmtDescriptor* d = av_pix_fmt_desc_get(avctx->pix_fmt))
++  {
++    if (d->log2_chroma_w == 1 && d->log2_chroma_h == 1)
++      return 420;
++    else if (d->log2_chroma_w == 1 && d->log2_chroma_h == 0)
++      return 422;
++    else if (d->log2_chroma_w == 0 && d->log2_chroma_h == 0)
++      return 444;
++  }
++  return 0;
++}
++
++std::optional<VAProfile> CDecoder::DetermineProfile(AVCodecContext* avctx, int bitDepth)
++{
++  int chroma = GetChromaSubsampling(avctx);
++
++  std::optional<VAProfile> profile;
++  switch (avctx->codec_id)
++  {
++    case AV_CODEC_ID_MPEG2VIDEO:
++      profile = VAProfileMPEG2Main;
++      break;
++    case AV_CODEC_ID_MPEG4:
++    case AV_CODEC_ID_H263:
++      profile = VAProfileMPEG4AdvancedSimple;
++      break;
++    case AV_CODEC_ID_H264:
++    {
++      if (avctx->profile == AV_PROFILE_H264_CONSTRAINED_BASELINE)
++        profile = VAProfileH264ConstrainedBaseline;
++#if VA_CHECK_VERSION(1, 18, 0)
++      else if (avctx->profile == AV_PROFILE_H264_HIGH_10 && bitDepth == 10 &&
++               m_capFormats.Supports(AV_PIX_FMT_P010))
++        profile = VAProfileH264High10;
++#endif
++      // Prefer Main when the driver has it, otherwise High (a superset of Main).
++      else if (avctx->profile == AV_PROFILE_H264_MAIN &&
++               m_vaapiConfig.context && m_vaapiConfig.context->SupportsProfile(VAProfileH264Main))
++        profile = VAProfileH264Main;
++      else
++        profile = VAProfileH264High;
++      break;
++    }
++    case AV_CODEC_ID_HEVC:
++    {
++      // VAAPI HEVC profile naming: VAProfileHEVCMain<N> is N-bit 4:2:0,
++      // VAProfileHEVCMain422_<N> is N-bit 4:2:2.
++      if (avctx->profile == AV_PROFILE_HEVC_MAIN_10 && m_capFormats.Supports(AV_PIX_FMT_P010))
++        profile = VAProfileHEVCMain10;
++      else if (avctx->profile == AV_PROFILE_HEVC_MAIN)
++        profile = VAProfileHEVCMain;
++      else if (avctx->profile == AV_PROFILE_HEVC_REXT && bitDepth == 12 &&
++               chroma == 420 &&
++               (m_capFormats.Supports(AV_PIX_FMT_P012) || m_capFormats.Supports(AV_PIX_FMT_P016)))
++        profile = VAProfileHEVCMain12;
++      else if (avctx->profile == AV_PROFILE_HEVC_REXT && bitDepth == 10 &&
++               chroma == 422 && m_capFormats.Supports(AV_PIX_FMT_Y210))
++        profile = VAProfileHEVCMain422_10;
++      else if (avctx->profile == AV_PROFILE_HEVC_REXT && bitDepth == 12 &&
++               chroma == 422 &&
++#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 45, 100)
++               (m_capFormats.Supports(AV_PIX_FMT_Y212) || m_capFormats.Supports(AV_PIX_FMT_Y216)))
++#else
++               m_capFormats.Supports(AV_PIX_FMT_Y212))
++#endif
++        profile = VAProfileHEVCMain422_12;
++      else if (avctx->profile == AV_PROFILE_HEVC_REXT && bitDepth == 8 &&
++               chroma == 444 &&
++               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
++        profile = VAProfileHEVCMain444;
++      else if (avctx->profile == AV_PROFILE_HEVC_REXT && bitDepth == 10 &&
++               chroma == 444 && m_capFormats.Supports(AV_PIX_FMT_XV30))
++        profile = VAProfileHEVCMain444_10;
++      else if (avctx->profile == AV_PROFILE_HEVC_REXT && bitDepth == 12 &&
++               chroma == 444 &&
++#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 46, 100)
++               (m_capFormats.Supports(AV_PIX_FMT_XV36) || m_capFormats.Supports(AV_PIX_FMT_XV48)))
++#else
++               m_capFormats.Supports(AV_PIX_FMT_XV36))
++#endif
++        profile = VAProfileHEVCMain444_12;
++      break;
++    }
++    case AV_CODEC_ID_VP8:
++      profile = VAProfileVP8Version0_3;
++      break;
++    case AV_CODEC_ID_VP9:
++    {
++      if (avctx->profile == AV_PROFILE_VP9_0)
++        profile = VAProfileVP9Profile0;
++      else if (avctx->profile == AV_PROFILE_VP9_2)
++        profile = VAProfileVP9Profile2;
++      else if (avctx->profile == AV_PROFILE_VP9_1 && chroma == 444 &&
++               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
++        profile = VAProfileVP9Profile1;
++      else if (avctx->profile == AV_PROFILE_VP9_3 && chroma == 444 &&
++               ((bitDepth == 10 && m_capFormats.Supports(AV_PIX_FMT_XV30)) ||
++#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 46, 100)
++                (bitDepth == 12 && (m_capFormats.Supports(AV_PIX_FMT_XV36) ||
++                                    m_capFormats.Supports(AV_PIX_FMT_XV48)))))
++#else
++                (bitDepth == 12 && (m_capFormats.Supports(AV_PIX_FMT_XV36)))))
++#endif
++        profile = VAProfileVP9Profile3;
++      break;
++    }
++    case AV_CODEC_ID_WMV3:
++      profile = VAProfileVC1Main;
++      break;
++    case AV_CODEC_ID_VC1:
++      profile = VAProfileVC1Advanced;
++      break;
++    case AV_CODEC_ID_AV1:
++    {
++      if (avctx->profile == AV_PROFILE_AV1_MAIN)
++        profile = VAProfileAV1Profile0;
++      else if (avctx->profile == AV_PROFILE_AV1_HIGH && bitDepth == 8 &&
++               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
++        profile = VAProfileAV1Profile1;
++      else if (avctx->profile == AV_PROFILE_AV1_HIGH && bitDepth == 10 &&
++               m_capFormats.Supports(AV_PIX_FMT_XV30))
++        profile = VAProfileAV1Profile1;
++      break;
++    }
++    default:
++      break;
++  }
++
++  return profile;
++}
++
+ void CDecoder::Close()
+ {
+   CLog::Log(LOGINFO, "VAAPI::{}", __FUNCTION__);
