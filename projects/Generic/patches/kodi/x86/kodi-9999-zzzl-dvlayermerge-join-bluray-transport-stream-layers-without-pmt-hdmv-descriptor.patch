@@ -1,0 +1,83 @@
+From: Hades <15710513+hadesdevls@users.noreply.github.com>
+Subject: [PATCH] VideoPlayer: DVLayerMerge: join Blu-ray transport stream layers without PMT HDMV descriptor
+
+UHD Blu-ray Profile 7 dual-layer Dolby Vision streams carry the base layer
+on PID 0x1011 and the enhancement layer on PID 0x1015. libavformat's
+detect_bdmv_dovi_group() creates an AVStreamGroup only when the PMT contains
+a registration descriptor of "HDMV". When clips are remuxed with tools like
+tsMuxer or authored without the HDMV descriptor (prog_reg_desc == 0),
+libavformat makes no stream group, and Kodi's DVLayerMerge previously
+refused to join the tracks, playing the base layer alone as ordinary HDR10.
+
+When libavformat creates no Dolby Vision stream group for a transport stream,
+detect the Blu-ray layer pair directly from the program's HEVC streams by
+their standard Blu-ray PIDs (0x1011 and 0x1015). If both are present, their
+sizes match the base and enhancement layer relationship (EnhancementSize),
+and both use start codes, join them as Profile 7 with compatibility ID 6.
+
+--- a/xbmc/cores/VideoPlayer/DVDDemuxers/DVLayerMerge.cpp
++++ b/xbmc/cores/VideoPlayer/DVDDemuxers/DVLayerMerge.cpp
+@@ -388,6 +388,63 @@
+     return refused;
+   if (groups > reversed)
+     return refused;
++  if (container == Container::TRANSPORT_STREAM)
++  {
++    // The discs themselves have no Dolby Vision descriptor: libavformat knows the pair by the
++    // stream numbers (PIDs 0x1011 and 0x1015) that the Blu-ray format gives to the two layers.
++    // If libavformat did not group them (e.g. because the PMT has no "HDMV" registration descriptor),
++    // detect the Blu-ray pair directly from the program's streams.
++    AVStream* base = nullptr;
++    AVStream* enhancement = nullptr;
++    for (unsigned int i = 0; i < context->nb_streams; ++i)
++    {
++      AVStream* stream = context->streams[i];
++      if (!stream || !stream->codecpar || stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO ||
++          stream->codecpar->codec_id != AV_CODEC_ID_HEVC ||
++          (stream->disposition & AV_DISPOSITION_ATTACHED_PIC) || !played(stream))
++        continue;
++      if (stream->id == 0x1011)
++        base = stream;
++      else if (stream->id == 0x1015)
++        enhancement = stream;
++    }
++    if (base && enhancement)
++    {
++      const AVCodecParameters* b = base->codecpar;
++      const AVCodecParameters* e = enhancement->codecpar;
++      Layers layers;
++      if (!EnhancementSize(b->width, b->height, e->width, e->height))
++      {
++        layers.result = Layers::Result::WRONG_SIZE;
++        return layers;
++      }
++      layers.container = container;
++      layers.base = base->index;
++      layers.enhancement = enhancement->index;
++      layers.rate = av_guess_frame_rate(context, base, nullptr);
++      if (layers.rate.num <= 0 || layers.rate.den <= 0)
++        layers.rate = AVRational{0, 1};
++      layers.baseLengthSize = LengthSize(b);
++      layers.enhancementLengthSize = LengthSize(e);
++      if (layers.baseLengthSize != 0 || layers.enhancementLengthSize != 0)
++      {
++        layers.result = Layers::Result::FRAMING;
++        return layers;
++      }
++      layers.decodingTimes = true;
++      layers.record.dv_version_major = 1;
++      layers.record.dv_version_minor = 0;
++      layers.record.dv_profile = 7;
++      layers.record.dv_level = Level(b->width, b->height, layers.rate);
++      layers.record.rpu_present_flag = 1;
++      layers.record.el_present_flag = 1;
++      layers.record.bl_present_flag = 1;
++      layers.record.dv_bl_signal_compatibility_id = 6;
++      layers.record.dv_md_compression = AV_DOVI_COMPRESSION_NONE;
++      layers.result = Layers::Result::JOINED;
++      return layers;
++    }
++  }
+   if (container != Container::MATROSKA)
+   {
+     refused.reason = container == Container::MP4
